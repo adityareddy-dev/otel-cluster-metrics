@@ -1,0 +1,12 @@
+{
+  "name": "otel-cluster-metrics-grafana-example",
+  "private": true,
+  "dependencies": {
+    "@adityareddy-dev/otel-cluster-metrics": "0.1.0",
+    "@opentelemetry/api": "1.10.0",
+    "@opentelemetry/core": "3.0.0",
+    "@opentelemetry/exporter-prometheus": "0.300.0",
+    "@opentelemetry/resources": "3.0.0",
+    "@opentelemetry/sdk-metrics": "3.0.0"
+  }
+}
