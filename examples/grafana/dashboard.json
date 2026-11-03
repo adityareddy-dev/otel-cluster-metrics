@@ -42,6 +42,23 @@
         "mode": "markdown",
         "content": "### Node.js cluster metrics through one Prometheus endpoint\nOne shop API runs as four Node `cluster` workers, twice, with the same traffic. **shop-api** uses [@adityareddy-dev/otel-cluster-metrics](https://www.npmjs.com/package/@adityareddy-dev/otel-cluster-metrics): workers report to the primary, which serves one `/metrics` for the whole cluster. **shop-api-stock** runs the stock OpenTelemetry Prometheus exporter in each worker on the shared port, so each scrape reaches whichever worker accepts it. Every four minutes one worker is retired and replaced, one in five times with SIGKILL."
       },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "vector(1)",
+          "legendFormat": "__auto",
+          "refId": "A",
+          "range": false,
+          "instant": true
+        }
+      ],
       "transparent": true,
       "id": 1,
       "gridPos": {
@@ -418,7 +435,7 @@
     },
     {
       "type": "timeseries",
-      "title": "Requests per second",
+      "title": "Requests per second, same traffic to both",
       "description": "Both apps get the same traffic, so these lines should match. Every drop in the stock counter is read as a reset, which inflates rate().",
       "datasource": {
         "type": "prometheus",
@@ -509,7 +526,7 @@
       "gridPos": {
         "x": 0,
         "y": 15,
-        "w": 12,
+        "w": 8,
         "h": 8
       }
     },
@@ -604,9 +621,106 @@
       },
       "id": 9,
       "gridPos": {
-        "x": 12,
+        "x": 8,
         "y": 15,
-        "w": 12,
+        "w": 8,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Workers Prometheus can see",
+      "description": "Both clusters run four workers. The merged endpoint reports every worker on each scrape. The stock exporter only ever shows the one worker that took the scrape.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "count by (job) (worker_heap_used{job=~\"shop-api|shop-api-stock\"})",
+          "legendFormat": "{{job}}",
+          "refId": "A",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "drawStyle": "line",
+            "spanNulls": true,
+            "gradientMode": "none",
+            "axisSoftMin": 0,
+            "insertNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "shop-api"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "shop-api-stock"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "min",
+            "max"
+          ],
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 10,
+      "gridPos": {
+        "x": 16,
+        "y": 15,
+        "w": 8,
         "h": 8
       }
     },
@@ -615,7 +729,7 @@
       "title": "Inside the merged cluster (shop-api)",
       "collapsed": false,
       "panels": [],
-      "id": 10,
+      "id": 11,
       "gridPos": {
         "x": 0,
         "y": 23,
@@ -727,7 +841,7 @@
           "sort": "desc"
         }
       },
-      "id": 11,
+      "id": 12,
       "gridPos": {
         "x": 0,
         "y": 24,
@@ -834,7 +948,7 @@
           "sort": "desc"
         }
       },
-      "id": 12,
+      "id": 13,
       "gridPos": {
         "x": 8,
         "y": 24,
@@ -916,7 +1030,7 @@
           "sort": "desc"
         }
       },
-      "id": 13,
+      "id": 14,
       "gridPos": {
         "x": 16,
         "y": 24,
@@ -1023,7 +1137,7 @@
           "sort": "desc"
         }
       },
-      "id": 14,
+      "id": 15,
       "gridPos": {
         "x": 0,
         "y": 32,
@@ -1034,7 +1148,7 @@
     {
       "type": "timeseries",
       "title": "V8 heap per worker",
-      "description": "Gauges stay one series per worker, keyed by cluster.worker.id (worker ID plus boot ID). A line ends when its worker is retired and a new one starts.",
+      "description": "Gauges stay one series per worker, keyed by cluster.worker.id (worker ID plus boot ID). A line ends when its worker is retired and a new one starts with the next ID.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -1045,8 +1159,8 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "max by (cluster_worker_id) (worker_heap_used{job=\"shop-api\"})",
-          "legendFormat": "{{cluster_worker_id}}",
+          "expr": "label_replace(max by (cluster_worker_id) (worker_heap_used{job=\"shop-api\"}), \"worker\", \"$1\", \"cluster_worker_id\", \"([0-9]+):.*\")",
+          "legendFormat": "worker {{worker}}",
           "refId": "A",
           "range": true
         }
@@ -1086,7 +1200,7 @@
           "sort": "desc"
         }
       },
-      "id": 15,
+      "id": 16,
       "gridPos": {
         "x": 12,
         "y": 32,
@@ -1150,7 +1264,7 @@
         "wideLayout": true,
         "showPercentChange": false
       },
-      "id": 16,
+      "id": 17,
       "gridPos": {
         "x": 0,
         "y": 40,
@@ -1214,7 +1328,7 @@
         "wideLayout": true,
         "showPercentChange": false
       },
-      "id": 17,
+      "id": 18,
       "gridPos": {
         "x": 6,
         "y": 40,
@@ -1281,7 +1395,7 @@
         "wideLayout": true,
         "showPercentChange": false
       },
-      "id": 18,
+      "id": 19,
       "gridPos": {
         "x": 12,
         "y": 40,
@@ -1345,11 +1459,57 @@
         "wideLayout": true,
         "showPercentChange": false
       },
-      "id": 19,
+      "id": 20,
       "gridPos": {
         "x": 18,
         "y": 40,
         "w": 6,
+        "h": 4
+      }
+    },
+    {
+      "type": "row",
+      "title": "How this is built",
+      "collapsed": false,
+      "panels": [],
+      "id": 21,
+      "gridPos": {
+        "x": 0,
+        "y": 44,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "type": "text",
+      "title": "",
+      "options": {
+        "mode": "markdown",
+        "content": "An OpenTelemetry Collector scrapes both `/metrics` endpoints every 15 seconds and sends them to Grafana Cloud over OTLP. A load generator sends the same requests to both clusters, on a one-hour wave between about 5 and 25 requests a second.\n\n- Package: [@adityareddy-dev/otel-cluster-metrics on npm](https://www.npmjs.com/package/@adityareddy-dev/otel-cluster-metrics), source on [GitHub](https://github.com/adityareddy-dev/otel-cluster-metrics)\n- Run this dashboard yourself: [examples/grafana](https://github.com/adityareddy-dev/otel-cluster-metrics/tree/main/examples/grafana) (`docker compose up`, then open Grafana on port 3000)\n- Dashboard JSON with a data source picker: [dashboard.json](https://github.com/adityareddy-dev/otel-cluster-metrics/blob/main/examples/grafana/dashboard.json)"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "vector(1)",
+          "legendFormat": "__auto",
+          "refId": "A",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "transparent": true,
+      "id": 22,
+      "gridPos": {
+        "x": 0,
+        "y": 45,
+        "w": 24,
         "h": 4
       }
     }
