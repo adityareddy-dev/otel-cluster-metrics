@@ -1,0 +1,9 @@
+global:
+  scrape_interval: 15s
+scrape_configs:
+  - job_name: shop-api
+    static_configs:
+      - targets: ['shop-api:9464']
+  - job_name: shop-api-stock
+    static_configs:
+      - targets: ['shop-api-stock:9464']
