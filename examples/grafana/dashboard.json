@@ -84,7 +84,7 @@
     {
       "type": "timeseries",
       "title": "Requests counter as Prometheus sees it",
-      "description": "The raw cumulative counter. One endpoint per cluster climbs steadily. The stock exporter shows one worker's count per scrape, so it jumps between workers and drops when a worker restarts.",
+      "description": "The raw cumulative counter. One endpoint per cluster climbs steadily. The stock exporter shows one worker's count per scrape, so it jumps between workers and drops when a worker restarts. Violet bars mark each worker restart.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -99,6 +99,17 @@
           "legendFormat": "{{job}}",
           "refId": "A",
           "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "count by (worker) (label_replace((max by (cluster_worker_id) (worker_heap_used{job=\"shop-api\"}) unless max by (cluster_worker_id) (worker_heap_used{job=\"shop-api\"} offset $__interval)) and on () count(max by (cluster_worker_id) (worker_heap_used{job=\"shop-api\"} offset $__interval)), \"worker\", \"$1\", \"cluster_worker_id\", \"([0-9]+):.*\"))",
+          "legendFormat": "worker {{worker}} starts",
+          "refId": "R",
+          "range": true,
+          "interval": "15s"
         }
       ],
       "fieldConfig": {
@@ -149,6 +160,57 @@
                 "value": {
                   "mode": "fixed",
                   "fixedColor": "#d95926"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "^worker .* starts$"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#9085e9"
+                }
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "bars"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 100
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "hidden"
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 1
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": true,
+                  "tooltip": false,
+                  "viz": false
                 }
               }
             ]
@@ -436,7 +498,7 @@
     {
       "type": "timeseries",
       "title": "Requests per second, same traffic to both",
-      "description": "Both apps get the same traffic, so these lines should match. Every drop in the stock counter is read as a reset, which inflates rate().",
+      "description": "Both apps get the same traffic, so these lines should match. Every drop in the stock counter is read as a reset, which inflates rate(). Violet bars mark each worker restart.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -451,6 +513,17 @@
           "legendFormat": "{{job}}",
           "refId": "A",
           "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "count by (worker) (label_replace((max by (cluster_worker_id) (worker_heap_used{job=\"shop-api\"}) unless max by (cluster_worker_id) (worker_heap_used{job=\"shop-api\"} offset $__interval)) and on () count(max by (cluster_worker_id) (worker_heap_used{job=\"shop-api\"} offset $__interval)), \"worker\", \"$1\", \"cluster_worker_id\", \"([0-9]+):.*\"))",
+          "legendFormat": "worker {{worker}} starts",
+          "refId": "R",
+          "range": true,
+          "interval": "15s"
         }
       ],
       "fieldConfig": {
@@ -501,6 +574,57 @@
                 "value": {
                   "mode": "fixed",
                   "fixedColor": "#d95926"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "^worker .* starts$"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#9085e9"
+                }
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "bars"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 100
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "hidden"
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 1
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": true,
+                  "tooltip": false,
+                  "viz": false
                 }
               }
             ]

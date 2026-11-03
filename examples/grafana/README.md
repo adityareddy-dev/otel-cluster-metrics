@@ -18,7 +18,7 @@ The same setup runs on Grafana Cloud, scraped through an OpenTelemetry Collector
 
 What to look at:
 
-- **Requests counter as Prometheus sees it.** The merged counter climbs in a straight line. The stock one jumps between workers' counts and falls back every time a worker restarts.
+- **Requests counter as Prometheus sees it.** The merged counter climbs in a straight line. The stock one jumps between workers' counts and falls back every time a worker restarts. A violet bar marks each worker restart, read from the merged endpoint: a `cluster.worker.id` that wasn't there one step earlier. Hover it to see which worker started.
 - **Resets in 1h.** Zero for merged. The stock exporter racks up dozens an hour, and each one makes `rate()` and `increase()` treat the drop as a restart. On the requests per second panel that inflates the stock line to several times the real traffic.
 - **Workers Prometheus can see.** Both clusters run four workers. The merged endpoint reports all four on every scrape; the stock exporter only ever shows the one worker that took the scrape.
 - **V8 heap per worker.** Gauges stay per worker, keyed by `cluster.worker.id` (worker ID plus boot ID), so a retired worker's line ends and its replacement starts a new one.
