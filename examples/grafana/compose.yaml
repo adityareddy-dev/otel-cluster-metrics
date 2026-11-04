@@ -34,6 +34,7 @@ services:
     environment:
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_PLUGINS_PREINSTALL: yesoreyeram-infinity-datasource
     volumes:
       - ./provisioning.yaml:/etc/grafana/provisioning/datasources/ds.yaml:ro
       - ./dashboards.yaml:/etc/grafana/provisioning/dashboards/db.yaml:ro
