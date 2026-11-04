@@ -1,6 +1,6 @@
 {
   "uid": "node-cluster-otel-metrics",
-  "title": "Node.js cluster: one Prometheus endpoint for every worker",
+  "title": "Is my shop as busy as my graph says? Node.js cluster metrics, counted two ways",
   "description": "otel-cluster-metrics against the stock exporter, same app, same traffic.",
   "tags": [
     "nodejs",
@@ -14,7 +14,7 @@
   "refresh": "1m",
   "schemaVersion": 41,
   "time": {
-    "from": "now-6h",
+    "from": "now-1h",
     "to": "now"
   },
   "templating": {
@@ -24,6 +24,15 @@
         "label": "Prometheus",
         "type": "datasource",
         "query": "prometheus",
+        "current": {},
+        "hide": 0,
+        "refresh": 1
+      },
+      {
+        "name": "infinity",
+        "label": "Infinity",
+        "type": "datasource",
+        "query": "yesoreyeram-infinity-datasource",
         "current": {},
         "hide": 0,
         "refresh": 1
@@ -40,7 +49,7 @@
       "title": "",
       "options": {
         "mode": "markdown",
-        "content": "### Node.js cluster metrics through one Prometheus endpoint\nOne shop API runs as four Node `cluster` workers, twice, with the same traffic. **shop-api** uses [@adityareddy-dev/otel-cluster-metrics](https://www.npmjs.com/package/@adityareddy-dev/otel-cluster-metrics): workers report to the primary, which serves one `/metrics` for the whole cluster. **shop-api-stock** runs the stock OpenTelemetry Prometheus exporter in each worker on the shared port, so each scrape reaches whichever worker accepts it. Every four minutes one worker is retired and replaced, one in five times with SIGKILL."
+        "content": "## Is my shop as busy as my graph says?\nNot with the usual setup. This is one small online shop, run twice with exactly the same visitors. **Blue** counts the whole shop in one place, with [otel-cluster-metrics](https://www.npmjs.com/package/@adityareddy-dev/otel-cluster-metrics). **Orange** is the usual setup: each of the shop's four workers keeps its own count, and the graph only hears from one of them at a time. Every four minutes one worker is swapped for a new one, the way real servers restart."
       },
       "datasource": {
         "type": "prometheus",
@@ -69,22 +78,9 @@
       }
     },
     {
-      "type": "row",
-      "title": "Same traffic, two ways of exporting it",
-      "collapsed": false,
-      "panels": [],
-      "id": 2,
-      "gridPos": {
-        "x": 0,
-        "y": 4,
-        "w": 24,
-        "h": 1
-      }
-    },
-    {
-      "type": "timeseries",
-      "title": "Requests counter as Prometheus sees it",
-      "description": "The raw cumulative counter. One endpoint per cluster climbs steadily. The stock exporter shows one worker's count per scrape, so it jumps between workers and drops when a worker restarts. Violet bars mark each worker restart.",
+      "type": "stat",
+      "title": "The usual setup reports",
+      "description": "Requests a second as the usual setup reports them, divided by the real count from the whole-shop endpoint, over the last hour. The right answer is 1\u00d7.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -95,8 +91,72 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (job) (shop_requests_total{job=~\"shop-api|shop-api-stock\"})",
-          "legendFormat": "{{job}}",
+          "expr": "sum(rate(shop_requests_total{job=\"shop-api-stock\"}[1h])) / sum(rate(shop_requests_total{job=\"shop-api\"}[1h]))",
+          "legendFormat": "__auto",
+          "refId": "A",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:\u00d7 the real traffic",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#d95926"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#d95926",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "id": 2,
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 8,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Requests a second: same visitors, two counts",
+      "description": "Both shops get exactly the same visitors, so the lines should sit on top of each other. Orange runs high because every time its count falls, Prometheus reads the fall as a restart and adds the count again. Violet bars mark each worker swap.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(rate(shop_requests_total{job=\"shop-api\"}[$__rate_interval]))",
+          "legendFormat": "one count for the whole shop",
           "refId": "A",
           "range": true
         },
@@ -105,413 +165,9 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "count by (worker) (label_replace((max by (cluster_worker_id) (worker_heap_used{job=\"shop-api\"}) unless max by (cluster_worker_id) (worker_heap_used{job=\"shop-api\"} offset $__interval)) and on () count(max by (cluster_worker_id) (worker_heap_used{job=\"shop-api\"} offset $__interval)), \"worker\", \"$1\", \"cluster_worker_id\", \"([0-9]+):.*\"))",
-          "legendFormat": "worker {{worker}} starts",
-          "refId": "R",
-          "range": true,
-          "interval": "15s"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "lineWidth": 2,
-            "fillOpacity": 0,
-            "showPoints": "never",
-            "drawStyle": "line",
-            "spanNulls": true,
-            "gradientMode": "none",
-            "axisSoftMin": 0,
-            "insertNulls": false,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            }
-          },
-          "color": {
-            "mode": "palette-classic"
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "shop-api"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#3987e5"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "shop-api-stock"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#d95926"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byRegexp",
-              "options": "^worker .* starts$"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#9085e9"
-                }
-              },
-              {
-                "id": "custom.drawStyle",
-                "value": "bars"
-              },
-              {
-                "id": "custom.fillOpacity",
-                "value": 100
-              },
-              {
-                "id": "custom.lineWidth",
-                "value": 1
-              },
-              {
-                "id": "custom.axisPlacement",
-                "value": "hidden"
-              },
-              {
-                "id": "min",
-                "value": 0
-              },
-              {
-                "id": "max",
-                "value": 1
-              },
-              {
-                "id": "unit",
-                "value": "none"
-              },
-              {
-                "id": "custom.hideFrom",
-                "value": {
-                  "legend": true,
-                  "tooltip": false,
-                  "viz": false
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ],
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "id": 3,
-      "gridPos": {
-        "x": 0,
-        "y": 5,
-        "w": 16,
-        "h": 10
-      }
-    },
-    {
-      "type": "stat",
-      "title": "Count, merged",
-      "description": "Since the primary started.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "sum(shop_requests_total{job=\"shop-api\"})",
-          "legendFormat": "__auto",
-          "refId": "A",
-          "range": false,
-          "instant": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "#3987e5"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "#3987e5",
-                "value": null
-              }
-            ]
-          },
-          "decimals": 0
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "colorMode": "value",
-        "graphMode": "none",
-        "textMode": "value",
-        "justifyMode": "center",
-        "wideLayout": true,
-        "showPercentChange": false
-      },
-      "id": 4,
-      "gridPos": {
-        "x": 16,
-        "y": 5,
-        "w": 4,
-        "h": 5
-      }
-    },
-    {
-      "type": "stat",
-      "title": "Count, stock",
-      "description": "Whatever worker answered the last scrape.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "sum(shop_requests_total{job=\"shop-api-stock\"})",
-          "legendFormat": "__auto",
-          "refId": "A",
-          "range": false,
-          "instant": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "#d95926"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "#d95926",
-                "value": null
-              }
-            ]
-          },
-          "decimals": 0
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "colorMode": "value",
-        "graphMode": "none",
-        "textMode": "value",
-        "justifyMode": "center",
-        "wideLayout": true,
-        "showPercentChange": false
-      },
-      "id": 5,
-      "gridPos": {
-        "x": 20,
-        "y": 5,
-        "w": 4,
-        "h": 5
-      }
-    },
-    {
-      "type": "stat",
-      "title": "Resets in 1h, merged",
-      "description": "Prometheus treats any drop in a counter as a restart.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "sum(resets(shop_requests_total{job=\"shop-api\"}[1h]))",
-          "legendFormat": "__auto",
-          "refId": "A",
-          "range": false,
-          "instant": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "#3987e5"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "#3987e5",
-                "value": null
-              }
-            ]
-          },
-          "decimals": 0
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "colorMode": "value",
-        "graphMode": "none",
-        "textMode": "value",
-        "justifyMode": "center",
-        "wideLayout": true,
-        "showPercentChange": false
-      },
-      "id": 6,
-      "gridPos": {
-        "x": 16,
-        "y": 10,
-        "w": 4,
-        "h": 5
-      }
-    },
-    {
-      "type": "stat",
-      "title": "Resets in 1h, stock",
-      "description": "Each one makes rate() and increase() guess.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "sum(resets(shop_requests_total{job=\"shop-api-stock\"}[1h]))",
-          "legendFormat": "__auto",
-          "refId": "A",
-          "range": false,
-          "instant": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "#d95926"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "#d95926",
-                "value": null
-              }
-            ]
-          },
-          "decimals": 0
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "colorMode": "value",
-        "graphMode": "none",
-        "textMode": "value",
-        "justifyMode": "center",
-        "wideLayout": true,
-        "showPercentChange": false
-      },
-      "id": 7,
-      "gridPos": {
-        "x": 20,
-        "y": 10,
-        "w": 4,
-        "h": 5
-      }
-    },
-    {
-      "type": "timeseries",
-      "title": "Requests per second, same traffic to both",
-      "description": "Both apps get the same traffic, so these lines should match. Every drop in the stock counter is read as a reset, which inflates rate(). Violet bars mark each worker restart.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "sum by (job) (rate(shop_requests_total{job=~\"shop-api|shop-api-stock\"}[$__rate_interval]))",
-          "legendFormat": "{{job}}",
-          "refId": "A",
+          "expr": "sum(rate(shop_requests_total{job=\"shop-api-stock\"}[$__rate_interval]))",
+          "legendFormat": "usual setup, one count per worker",
+          "refId": "B",
           "range": true
         },
         {
@@ -551,7 +207,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "shop-api"
+              "options": "one count for the whole shop"
             },
             "properties": [
               {
@@ -566,7 +222,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "shop-api-stock"
+              "options": "usual setup, one count per worker"
             },
             "properties": [
               {
@@ -646,18 +302,18 @@
           "sort": "desc"
         }
       },
-      "id": 8,
+      "id": 3,
       "gridPos": {
-        "x": 0,
-        "y": 15,
-        "w": 8,
+        "x": 8,
+        "y": 4,
+        "w": 16,
         "h": 8
       }
     },
     {
-      "type": "timeseries",
-      "title": "p95 request latency",
-      "description": "Merged histograms add counts, sums and buckets across workers. The stock line is one worker's sample.",
+      "type": "stat",
+      "title": "Times the count started over, last hour",
+      "description": "A request count should only go up. Each time it falls, Prometheus assumes the app restarted and guesses the missing part. The whole-shop count never falls. The usual setup falls hundreds of times an hour: at each worker swap, and each time a different worker answers.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -668,38 +324,47 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "histogram_quantile(0.95, sum by (le, job) (rate(shop_request_duration_bucket{job=~\"shop-api|shop-api-stock\"}[$__rate_interval])))",
-          "legendFormat": "{{job}}",
+          "expr": "sum(resets(shop_requests_total{job=\"shop-api\"}[1h]))",
+          "legendFormat": "one count for the whole shop",
           "refId": "A",
-          "range": true
+          "range": false,
+          "instant": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(resets(shop_requests_total{job=\"shop-api-stock\"}[1h]))",
+          "legendFormat": "usual setup, one count per worker",
+          "refId": "B",
+          "range": false,
+          "instant": true
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "s",
-          "custom": {
-            "lineWidth": 2,
-            "fillOpacity": 0,
-            "showPoints": "never",
-            "drawStyle": "line",
-            "spanNulls": true,
-            "gradientMode": "none",
-            "axisSoftMin": 0,
-            "insertNulls": false,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            }
-          },
+          "unit": "short",
           "color": {
-            "mode": "palette-classic"
-          }
+            "mode": "fixed",
+            "fixedColor": "#3987e5"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#3987e5",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 0
         },
         "overrides": [
           {
             "matcher": {
               "id": "byName",
-              "options": "shop-api"
+              "options": "one count for the whole shop"
             },
             "properties": [
               {
@@ -714,7 +379,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "shop-api-stock"
+              "options": "usual setup, one count per worker"
             },
             "properties": [
               {
@@ -729,32 +394,32 @@
         ]
       },
       "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
+        "reduceOptions": {
           "calcs": [
-            "mean",
-            "max"
+            "lastNotNull"
           ],
-          "showLegend": true
+          "fields": "",
+          "values": false
         },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "center",
+        "wideLayout": true,
+        "showPercentChange": false
       },
-      "id": 9,
+      "id": 4,
       "gridPos": {
-        "x": 8,
-        "y": 15,
+        "x": 0,
+        "y": 12,
         "w": 8,
-        "h": 8
+        "h": 7
       }
     },
     {
       "type": "timeseries",
-      "title": "Workers Prometheus can see",
-      "description": "Both clusters run four workers. The merged endpoint reports every worker on each scrape. The stock exporter only ever shows the one worker that took the scrape.",
+      "title": "Workers the graph can see (the shop runs four)",
+      "description": "Both shops run four workers. The whole-shop endpoint reports every worker on each scrape. The usual setup only ever shows the one worker that answered.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -765,9 +430,19 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "count by (job) (worker_heap_used{job=~\"shop-api|shop-api-stock\"})",
-          "legendFormat": "{{job}}",
+          "expr": "count(worker_heap_used{job=\"shop-api\"})",
+          "legendFormat": "one count for the whole shop",
           "refId": "A",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "count(worker_heap_used{job=\"shop-api-stock\"})",
+          "legendFormat": "usual setup, one count per worker",
+          "refId": "B",
           "range": true
         }
       ],
@@ -796,7 +471,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "shop-api"
+              "options": "one count for the whole shop"
             },
             "properties": [
               {
@@ -811,7 +486,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "shop-api-stock"
+              "options": "usual setup, one count per worker"
             },
             "properties": [
               {
@@ -840,801 +515,1352 @@
           "sort": "desc"
         }
       },
-      "id": 10,
+      "id": 5,
+      "gridPos": {
+        "x": 8,
+        "y": 12,
+        "w": 8,
+        "h": 7
+      }
+    },
+    {
+      "type": "barchart",
+      "title": "Real use: npm downloads per week",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "${infinity}"
+      },
+      "description": "Weekly downloads of @adityareddy-dev/otel-cluster-metrics from the npm registry. Week 44 is Oct 26 to Nov 1, 2026, the week of the first release (Oct 28). The current week is still counting, and npm adds each day a day later.",
+      "targets": [
+        {
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "${infinity}"
+          },
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "parser": "backend",
+          "format": "table",
+          "url": "https://api.npmjs.org/downloads/range/2026-10-26:2030-12-31/@adityareddy-dev/otel-cluster-metrics",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "downloads",
+          "columns": [
+            {
+              "selector": "day",
+              "text": "day",
+              "type": "string"
+            },
+            {
+              "selector": "downloads",
+              "text": "downloads",
+              "type": "number"
+            }
+          ]
+        }
+      ],
+      "transformations": [
+        {
+          "id": "convertFieldType",
+          "options": {
+            "fields": {},
+            "conversions": [
+              {
+                "targetField": "day",
+                "destinationType": "time",
+                "dateFormat": "YYYY-MM-DD"
+              }
+            ]
+          }
+        },
+        {
+          "id": "formatTime",
+          "options": {
+            "timeField": "day",
+            "outputFormat": "[Week ]W",
+            "useTimezone": false
+          }
+        },
+        {
+          "id": "groupBy",
+          "options": {
+            "fields": {
+              "day": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "downloads": {
+                "aggregations": [
+                  "sum"
+                ],
+                "operation": "aggregate"
+              }
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "day": "Week",
+              "downloads (sum)": "downloads"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#199e70"
+          },
+          "custom": {
+            "fillOpacity": 80,
+            "lineWidth": 0,
+            "axisSoftMin": 0,
+            "gradientMode": "none"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "xField": "Week",
+        "orientation": "vertical",
+        "showValue": "always",
+        "stacking": "none",
+        "barWidth": 0.6,
+        "groupWidth": 0.7,
+        "xTickLabelRotation": 0,
+        "legend": {
+          "showLegend": false,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "id": 6,
       "gridPos": {
         "x": 16,
-        "y": 15,
+        "y": 12,
         "w": 8,
-        "h": 8
+        "h": 7
+      }
+    },
+    {
+      "type": "row",
+      "title": "The raw counter, and what each setup has counted",
+      "collapsed": true,
+      "panels": [
+        {
+          "type": "timeseries",
+          "title": "Requests counter as Prometheus sees it",
+          "description": "The raw running count. The whole-shop count climbs steadily. The usual setup shows one worker's count per scrape, so it jumps between workers and drops when a worker restarts. Violet bars mark each worker swap.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "sum(shop_requests_total{job=\"shop-api\"})",
+              "legendFormat": "one count for the whole shop",
+              "refId": "A",
+              "range": true
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "sum(shop_requests_total{job=\"shop-api-stock\"})",
+              "legendFormat": "usual setup, one count per worker",
+              "refId": "B",
+              "range": true
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "count by (worker) (label_replace((max by (cluster_worker_id) (worker_heap_used{job=\"shop-api\"}) unless max by (cluster_worker_id) (worker_heap_used{job=\"shop-api\"} offset $__interval)) and on () count(max by (cluster_worker_id) (worker_heap_used{job=\"shop-api\"} offset $__interval)), \"worker\", \"$1\", \"cluster_worker_id\", \"([0-9]+):.*\"))",
+              "legendFormat": "worker {{worker}} starts",
+              "refId": "R",
+              "range": true,
+              "interval": "15s"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "showPoints": "never",
+                "drawStyle": "line",
+                "spanNulls": true,
+                "gradientMode": "none",
+                "axisSoftMin": 0,
+                "insertNulls": false,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "one count for the whole shop"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#3987e5"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "usual setup, one count per worker"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#d95926"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": "^worker .* starts$"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#9085e9"
+                    }
+                  },
+                  {
+                    "id": "custom.drawStyle",
+                    "value": "bars"
+                  },
+                  {
+                    "id": "custom.fillOpacity",
+                    "value": 100
+                  },
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 1
+                  },
+                  {
+                    "id": "custom.axisPlacement",
+                    "value": "hidden"
+                  },
+                  {
+                    "id": "min",
+                    "value": 0
+                  },
+                  {
+                    "id": "max",
+                    "value": 1
+                  },
+                  {
+                    "id": "unit",
+                    "value": "none"
+                  },
+                  {
+                    "id": "custom.hideFrom",
+                    "value": {
+                      "legend": true,
+                      "tooltip": false,
+                      "viz": false
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "lastNotNull"
+              ],
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "id": 8,
+          "gridPos": {
+            "x": 0,
+            "y": 20,
+            "w": 16,
+            "h": 10
+          }
+        },
+        {
+          "type": "stat",
+          "title": "Requests counted, whole shop",
+          "description": "Every request since the primary started, across all four workers.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "sum(shop_requests_total{job=\"shop-api\"})",
+              "legendFormat": "__auto",
+              "refId": "A",
+              "range": false,
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "#3987e5"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#3987e5",
+                    "value": null
+                  }
+                ]
+              },
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "value",
+            "justifyMode": "center",
+            "wideLayout": true,
+            "showPercentChange": false
+          },
+          "id": 9,
+          "gridPos": {
+            "x": 16,
+            "y": 20,
+            "w": 8,
+            "h": 5
+          }
+        },
+        {
+          "type": "stat",
+          "title": "Requests counted, usual setup (one worker only)",
+          "description": "Not the shop's total: only the count kept by whichever worker answered the last scrape. Right after that worker is swapped it reads as low as 1.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "sum(shop_requests_total{job=\"shop-api-stock\"})",
+              "legendFormat": "__auto",
+              "refId": "A",
+              "range": false,
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "#d95926"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#d95926",
+                    "value": null
+                  }
+                ]
+              },
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "value",
+            "justifyMode": "center",
+            "wideLayout": true,
+            "showPercentChange": false
+          },
+          "id": 10,
+          "gridPos": {
+            "x": 16,
+            "y": 25,
+            "w": 8,
+            "h": 5
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "p95 request latency",
+          "description": "Merged histograms add counts, sums and buckets across workers. The usual setup's line is one worker's sample.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(shop_request_duration_bucket{job=\"shop-api\"}[$__rate_interval])))",
+              "legendFormat": "one count for the whole shop",
+              "refId": "A",
+              "range": true
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(shop_request_duration_bucket{job=\"shop-api-stock\"}[$__rate_interval])))",
+              "legendFormat": "usual setup, one count per worker",
+              "refId": "B",
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "showPoints": "never",
+                "drawStyle": "line",
+                "spanNulls": true,
+                "gradientMode": "none",
+                "axisSoftMin": 0,
+                "insertNulls": false,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "one count for the whole shop"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#3987e5"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "usual setup, one count per worker"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#d95926"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "max"
+              ],
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "id": 11,
+          "gridPos": {
+            "x": 0,
+            "y": 30,
+            "w": 24,
+            "h": 8
+          }
+        }
+      ],
+      "id": 7,
+      "gridPos": {
+        "x": 0,
+        "y": 19,
+        "w": 24,
+        "h": 1
       }
     },
     {
       "type": "row",
       "title": "Inside the merged cluster (shop-api)",
-      "collapsed": false,
-      "panels": [],
-      "id": 11,
-      "gridPos": {
-        "x": 0,
-        "y": 23,
-        "w": 24,
-        "h": 1
-      }
-    },
-    {
-      "type": "timeseries",
-      "title": "Requests per second by route",
-      "description": "Monotonic sums: one latest snapshot per worker, retired workers' totals kept.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "targets": [
+      "collapsed": true,
+      "panels": [
         {
+          "type": "timeseries",
+          "title": "Requests per second by route",
+          "description": "Monotonic sums: one latest snapshot per worker, retired workers' totals kept.",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (http_route) (rate(shop_requests_total{job=\"shop-api\"}[$__rate_interval]))",
-          "legendFormat": "{{http_route}}",
-          "refId": "A",
-          "range": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "reqps",
-          "custom": {
-            "lineWidth": 2,
-            "fillOpacity": 80,
-            "showPoints": "never",
-            "drawStyle": "line",
-            "spanNulls": true,
-            "gradientMode": "none",
-            "axisSoftMin": 0,
-            "insertNulls": false,
-            "stacking": {
-              "mode": "normal",
-              "group": "A"
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "sum by (http_route) (rate(shop_requests_total{job=\"shop-api\"}[$__rate_interval]))",
+              "legendFormat": "{{http_route}}",
+              "refId": "A",
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 80,
+                "showPoints": "never",
+                "drawStyle": "line",
+                "spanNulls": true,
+                "gradientMode": "none",
+                "axisSoftMin": 0,
+                "insertNulls": false,
+                "stacking": {
+                  "mode": "normal",
+                  "group": "A"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "/products"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#3987e5"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "/cart"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#199e70"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "/checkout"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#9085e9"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "max"
+              ],
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
             }
           },
-          "color": {
-            "mode": "palette-classic"
+          "id": 13,
+          "gridPos": {
+            "x": 0,
+            "y": 39,
+            "w": 8,
+            "h": 8
           }
         },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "/products"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#3987e5"
-                }
-              }
-            ]
+        {
+          "type": "timeseries",
+          "title": "p50 and p95 latency, /checkout",
+          "description": "From the cluster-wide histogram.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
           },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "/cart"
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "histogram_quantile(0.50, sum by (le) (rate(shop_request_duration_bucket{job=\"shop-api\", http_route=\"/checkout\"}[$__rate_interval])))",
+              "legendFormat": "p50",
+              "refId": "A",
+              "range": true
             },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#199e70"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "/checkout"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#9085e9"
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "mean",
-            "max"
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(shop_request_duration_bucket{job=\"shop-api\", http_route=\"/checkout\"}[$__rate_interval])))",
+              "legendFormat": "p95",
+              "refId": "B",
+              "range": true
+            }
           ],
-          "showLegend": true
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "showPoints": "never",
+                "drawStyle": "line",
+                "spanNulls": true,
+                "gradientMode": "none",
+                "axisSoftMin": 0,
+                "insertNulls": false,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "p50"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#3987e5"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "p95"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#9085e9"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "max"
+              ],
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "id": 14,
+          "gridPos": {
+            "x": 8,
+            "y": 39,
+            "w": 8,
+            "h": 8
+          }
         },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
+        {
+          "type": "timeseries",
+          "title": "Checkout errors per minute",
+          "description": "About 3% of checkouts fail on purpose.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "sum(rate(shop_requests_total{job=\"shop-api\", http_response_status_code=\"500\"}[$__rate_interval])) * 60",
+              "legendFormat": "500s",
+              "refId": "A",
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "showPoints": "never",
+                "drawStyle": "line",
+                "spanNulls": true,
+                "gradientMode": "none",
+                "axisSoftMin": 0,
+                "insertNulls": false,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "500s"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#e66767"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "max"
+              ],
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "id": 15,
+          "gridPos": {
+            "x": 16,
+            "y": 39,
+            "w": 8,
+            "h": 8
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "In-flight requests and email queue, whole cluster",
+          "description": "Non-monotonic sums add current worker values and drop exited workers. Each checkout queues confirmation emails, and queue.depth is summed across workers with gaugeReducers: { \"queue.depth\": \"sum\" }.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "sum(shop_active_requests{job=\"shop-api\"})",
+              "legendFormat": "in flight (non-monotonic sum)",
+              "refId": "A",
+              "range": true
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "sum(queue_depth{job=\"shop-api\"})",
+              "legendFormat": "email queue (gauge, sum reducer)",
+              "refId": "B",
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "showPoints": "never",
+                "drawStyle": "line",
+                "spanNulls": true,
+                "gradientMode": "none",
+                "axisSoftMin": 0,
+                "insertNulls": false,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "in flight (non-monotonic sum)"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#3987e5"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "email queue (gauge, sum reducer)"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#199e70"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "max"
+              ],
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "id": 16,
+          "gridPos": {
+            "x": 0,
+            "y": 47,
+            "w": 12,
+            "h": 8
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "V8 heap per worker",
+          "description": "Gauges stay one series per worker, keyed by cluster.worker.id (worker ID plus boot ID). A line ends when its worker is retired and a new one starts with the next ID.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "label_replace(max by (cluster_worker_id) (worker_heap_used{job=\"shop-api\"}), \"worker\", \"$1\", \"cluster_worker_id\", \"([0-9]+):.*\")",
+              "legendFormat": "worker {{worker}}",
+              "refId": "A",
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "showPoints": "never",
+                "drawStyle": "line",
+                "spanNulls": true,
+                "gradientMode": "none",
+                "axisSoftMin": 0,
+                "insertNulls": false,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [],
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "id": 17,
+          "gridPos": {
+            "x": 12,
+            "y": 47,
+            "w": 12,
+            "h": 8
+          }
+        },
+        {
+          "type": "stat",
+          "title": "Workers live now",
+          "description": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "count(max by (cluster_worker_id) (worker_heap_used{job=\"shop-api\"}))",
+              "legendFormat": "__auto",
+              "refId": "A",
+              "range": false,
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "#3987e5"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#3987e5",
+                    "value": null
+                  }
+                ]
+              },
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "value",
+            "justifyMode": "center",
+            "wideLayout": true,
+            "showPercentChange": false
+          },
+          "id": 18,
+          "gridPos": {
+            "x": 0,
+            "y": 55,
+            "w": 6,
+            "h": 4
+          }
+        },
+        {
+          "type": "stat",
+          "title": "Worker processes seen, 24h",
+          "description": "Each boot gets its own ID, so this counts restarts too.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "count(max by (cluster_worker_id) (max_over_time(worker_heap_used{job=\"shop-api\"}[24h])))",
+              "legendFormat": "__auto",
+              "refId": "A",
+              "range": false,
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "#9085e9"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#9085e9",
+                    "value": null
+                  }
+                ]
+              },
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "value",
+            "justifyMode": "center",
+            "wideLayout": true,
+            "showPercentChange": false
+          },
+          "id": 19,
+          "gridPos": {
+            "x": 6,
+            "y": 55,
+            "w": 6,
+            "h": 4
+          }
+        },
+        {
+          "type": "stat",
+          "title": "Primary scrape OK",
+          "description": "The handler returns 503 for an incomplete round instead of partial data.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "min(up{job=\"shop-api\"})",
+              "legendFormat": "__auto",
+              "refId": "A",
+              "range": false,
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bool_yes_no",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#e66767",
+                    "value": null
+                  },
+                  {
+                    "color": "#199e70",
+                    "value": 1
+                  }
+                ]
+              },
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "value",
+            "justifyMode": "center",
+            "wideLayout": true,
+            "showPercentChange": false
+          },
+          "id": 20,
+          "gridPos": {
+            "x": 12,
+            "y": 55,
+            "w": 6,
+            "h": 4
+          }
+        },
+        {
+          "type": "stat",
+          "title": "Requests in the last hour, merged",
+          "description": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "sum(increase(shop_requests_total{job=\"shop-api\"}[1h]))",
+              "legendFormat": "__auto",
+              "refId": "A",
+              "range": false,
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "#3987e5"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#3987e5",
+                    "value": null
+                  }
+                ]
+              },
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "value",
+            "justifyMode": "center",
+            "wideLayout": true,
+            "showPercentChange": false
+          },
+          "id": 21,
+          "gridPos": {
+            "x": 18,
+            "y": 55,
+            "w": 6,
+            "h": 4
+          }
         }
-      },
+      ],
       "id": 12,
       "gridPos": {
         "x": 0,
-        "y": 24,
-        "w": 8,
-        "h": 8
-      }
-    },
-    {
-      "type": "timeseries",
-      "title": "p50 and p95 latency, /checkout",
-      "description": "From the cluster-wide histogram.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(shop_request_duration_bucket{job=\"shop-api\", http_route=\"/checkout\"}[$__rate_interval])))",
-          "legendFormat": "p50",
-          "refId": "A",
-          "range": true
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(shop_request_duration_bucket{job=\"shop-api\", http_route=\"/checkout\"}[$__rate_interval])))",
-          "legendFormat": "p95",
-          "refId": "B",
-          "range": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "custom": {
-            "lineWidth": 2,
-            "fillOpacity": 0,
-            "showPoints": "never",
-            "drawStyle": "line",
-            "spanNulls": true,
-            "gradientMode": "none",
-            "axisSoftMin": 0,
-            "insertNulls": false,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            }
-          },
-          "color": {
-            "mode": "palette-classic"
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "p50"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#3987e5"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "p95"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#9085e9"
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "mean",
-            "max"
-          ],
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "id": 13,
-      "gridPos": {
-        "x": 8,
-        "y": 24,
-        "w": 8,
-        "h": 8
-      }
-    },
-    {
-      "type": "timeseries",
-      "title": "Checkout errors per minute",
-      "description": "About 3% of checkouts fail on purpose.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "sum(rate(shop_requests_total{job=\"shop-api\", http_response_status_code=\"500\"}[$__rate_interval])) * 60",
-          "legendFormat": "500s",
-          "refId": "A",
-          "range": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "lineWidth": 2,
-            "fillOpacity": 0,
-            "showPoints": "never",
-            "drawStyle": "line",
-            "spanNulls": true,
-            "gradientMode": "none",
-            "axisSoftMin": 0,
-            "insertNulls": false,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            }
-          },
-          "color": {
-            "mode": "palette-classic"
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "500s"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#e66767"
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "mean",
-            "max"
-          ],
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "id": 14,
-      "gridPos": {
-        "x": 16,
-        "y": 24,
-        "w": 8,
-        "h": 8
-      }
-    },
-    {
-      "type": "timeseries",
-      "title": "In-flight requests and email queue, whole cluster",
-      "description": "Non-monotonic sums add current worker values and drop exited workers. Each checkout queues confirmation emails, and queue.depth is summed across workers with gaugeReducers: { \"queue.depth\": \"sum\" }.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "sum(shop_active_requests{job=\"shop-api\"})",
-          "legendFormat": "in flight (non-monotonic sum)",
-          "refId": "A",
-          "range": true
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "sum(queue_depth{job=\"shop-api\"})",
-          "legendFormat": "email queue (gauge, sum reducer)",
-          "refId": "B",
-          "range": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "lineWidth": 2,
-            "fillOpacity": 0,
-            "showPoints": "never",
-            "drawStyle": "line",
-            "spanNulls": true,
-            "gradientMode": "none",
-            "axisSoftMin": 0,
-            "insertNulls": false,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            }
-          },
-          "color": {
-            "mode": "palette-classic"
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "in flight (non-monotonic sum)"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#3987e5"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "email queue (gauge, sum reducer)"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#199e70"
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "mean",
-            "max"
-          ],
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "id": 15,
-      "gridPos": {
-        "x": 0,
-        "y": 32,
-        "w": 12,
-        "h": 8
-      }
-    },
-    {
-      "type": "timeseries",
-      "title": "V8 heap per worker",
-      "description": "Gauges stay one series per worker, keyed by cluster.worker.id (worker ID plus boot ID). A line ends when its worker is retired and a new one starts with the next ID.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "label_replace(max by (cluster_worker_id) (worker_heap_used{job=\"shop-api\"}), \"worker\", \"$1\", \"cluster_worker_id\", \"([0-9]+):.*\")",
-          "legendFormat": "worker {{worker}}",
-          "refId": "A",
-          "range": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "bytes",
-          "custom": {
-            "lineWidth": 2,
-            "fillOpacity": 0,
-            "showPoints": "never",
-            "drawStyle": "line",
-            "spanNulls": true,
-            "gradientMode": "none",
-            "axisSoftMin": 0,
-            "insertNulls": false,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            }
-          },
-          "color": {
-            "mode": "palette-classic"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [],
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "id": 16,
-      "gridPos": {
-        "x": 12,
-        "y": 32,
-        "w": 12,
-        "h": 8
-      }
-    },
-    {
-      "type": "stat",
-      "title": "Workers live now",
-      "description": "",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "count(max by (cluster_worker_id) (worker_heap_used{job=\"shop-api\"}))",
-          "legendFormat": "__auto",
-          "refId": "A",
-          "range": false,
-          "instant": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "#3987e5"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "#3987e5",
-                "value": null
-              }
-            ]
-          },
-          "decimals": 0
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "colorMode": "value",
-        "graphMode": "none",
-        "textMode": "value",
-        "justifyMode": "center",
-        "wideLayout": true,
-        "showPercentChange": false
-      },
-      "id": 17,
-      "gridPos": {
-        "x": 0,
-        "y": 40,
-        "w": 6,
-        "h": 4
-      }
-    },
-    {
-      "type": "stat",
-      "title": "Worker processes seen, 24h",
-      "description": "Each boot gets its own ID, so this counts restarts too.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "count(max by (cluster_worker_id) (max_over_time(worker_heap_used{job=\"shop-api\"}[24h])))",
-          "legendFormat": "__auto",
-          "refId": "A",
-          "range": false,
-          "instant": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "#9085e9"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "#9085e9",
-                "value": null
-              }
-            ]
-          },
-          "decimals": 0
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "colorMode": "value",
-        "graphMode": "none",
-        "textMode": "value",
-        "justifyMode": "center",
-        "wideLayout": true,
-        "showPercentChange": false
-      },
-      "id": 18,
-      "gridPos": {
-        "x": 6,
-        "y": 40,
-        "w": 6,
-        "h": 4
-      }
-    },
-    {
-      "type": "stat",
-      "title": "Primary scrape OK",
-      "description": "The handler returns 503 for an incomplete round instead of partial data.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "min(up{job=\"shop-api\"})",
-          "legendFormat": "__auto",
-          "refId": "A",
-          "range": false,
-          "instant": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "bool_yes_no",
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "#e66767",
-                "value": null
-              },
-              {
-                "color": "#199e70",
-                "value": 1
-              }
-            ]
-          },
-          "decimals": 0
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "colorMode": "value",
-        "graphMode": "none",
-        "textMode": "value",
-        "justifyMode": "center",
-        "wideLayout": true,
-        "showPercentChange": false
-      },
-      "id": 19,
-      "gridPos": {
-        "x": 12,
-        "y": 40,
-        "w": 6,
-        "h": 4
-      }
-    },
-    {
-      "type": "stat",
-      "title": "Requests in the last hour, merged",
-      "description": "",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "sum(increase(shop_requests_total{job=\"shop-api\"}[1h]))",
-          "legendFormat": "__auto",
-          "refId": "A",
-          "range": false,
-          "instant": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "#3987e5"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "#3987e5",
-                "value": null
-              }
-            ]
-          },
-          "decimals": 0
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "colorMode": "value",
-        "graphMode": "none",
-        "textMode": "value",
-        "justifyMode": "center",
-        "wideLayout": true,
-        "showPercentChange": false
-      },
-      "id": 20,
-      "gridPos": {
-        "x": 18,
-        "y": 40,
-        "w": 6,
-        "h": 4
+        "y": 38,
+        "w": 24,
+        "h": 1
       }
     },
     {
       "type": "row",
       "title": "How this is built",
-      "collapsed": false,
-      "panels": [],
-      "id": 21,
-      "gridPos": {
-        "x": 0,
-        "y": 44,
-        "w": 24,
-        "h": 1
-      }
-    },
-    {
-      "type": "text",
-      "title": "",
-      "options": {
-        "mode": "markdown",
-        "content": "An OpenTelemetry Collector scrapes both `/metrics` endpoints every 15 seconds and sends them to Grafana Cloud over OTLP. A load generator sends the same requests to both clusters, on a one-hour wave between about 5 and 25 requests a second.\n\n- Package: [@adityareddy-dev/otel-cluster-metrics on npm](https://www.npmjs.com/package/@adityareddy-dev/otel-cluster-metrics), source on [GitHub](https://github.com/adityareddy-dev/otel-cluster-metrics)\n- Run this dashboard yourself: [examples/grafana](https://github.com/adityareddy-dev/otel-cluster-metrics/tree/main/examples/grafana) (`docker compose up`, then open Grafana on port 3000)\n- Dashboard JSON with a data source picker: [dashboard.json](https://github.com/adityareddy-dev/otel-cluster-metrics/blob/main/examples/grafana/dashboard.json)"
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "targets": [
+      "collapsed": true,
+      "panels": [
         {
+          "type": "text",
+          "title": "",
+          "options": {
+            "mode": "markdown",
+            "content": "**shop-api** (blue) uses [@adityareddy-dev/otel-cluster-metrics](https://www.npmjs.com/package/@adityareddy-dev/otel-cluster-metrics): workers report to the primary, which serves one `/metrics` for the whole cluster. **shop-api-stock** (orange) runs the stock OpenTelemetry Prometheus exporter in each worker on the shared port, so each scrape reaches whichever worker accepts it. Every four minutes one worker is retired and replaced, one in five times with SIGKILL.\n\nAn OpenTelemetry Collector scrapes both `/metrics` endpoints every 15 seconds and sends them to Grafana Cloud over OTLP. A load generator sends the same requests to both clusters, on a one-hour wave between about 5 and 25 requests a second.\n\n- Package: [@adityareddy-dev/otel-cluster-metrics on npm](https://www.npmjs.com/package/@adityareddy-dev/otel-cluster-metrics), source on [GitHub](https://github.com/adityareddy-dev/otel-cluster-metrics)\n- Run this dashboard yourself: [examples/grafana](https://github.com/adityareddy-dev/otel-cluster-metrics/tree/main/examples/grafana) (`docker compose up`, then open Grafana on port 3000)\n- Dashboard JSON with a data source picker: [dashboard.json](https://github.com/adityareddy-dev/otel-cluster-metrics/blob/main/examples/grafana/dashboard.json)"
+          },
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "vector(1)",
-          "legendFormat": "__auto",
-          "refId": "A",
-          "range": false,
-          "instant": true
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "vector(1)",
+              "legendFormat": "__auto",
+              "refId": "A",
+              "range": false,
+              "instant": true
+            }
+          ],
+          "transparent": true,
+          "id": 23,
+          "gridPos": {
+            "x": 0,
+            "y": 60,
+            "w": 24,
+            "h": 6
+          }
         }
       ],
-      "transparent": true,
       "id": 22,
       "gridPos": {
         "x": 0,
-        "y": 45,
+        "y": 59,
         "w": 24,
-        "h": 4
+        "h": 1
       }
     }
   ]
