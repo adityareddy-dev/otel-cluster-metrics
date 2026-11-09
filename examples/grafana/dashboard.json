@@ -27,15 +27,6 @@
         "current": {},
         "hide": 0,
         "refresh": 1
-      },
-      {
-        "name": "infinity",
-        "label": "Infinity",
-        "type": "datasource",
-        "query": "yesoreyeram-infinity-datasource",
-        "current": {},
-        "hide": 0,
-        "refresh": 1
       }
     ]
   },
@@ -49,7 +40,7 @@
       "title": "",
       "options": {
         "mode": "markdown",
-        "content": "## Is my shop as busy as my graph says?\nNot with the usual setup. This is one small online shop, run twice with exactly the same visitors. **Blue** counts the whole shop in one place, with [otel-cluster-metrics](https://www.npmjs.com/package/@adityareddy-dev/otel-cluster-metrics). **Orange** is the usual setup: each of the shop's four workers keeps its own count, and the graph only hears from one of them at a time. Every four minutes one worker is swapped for a new one, the way real servers restart."
+        "content": "## Is my shop as busy as my graph says?\nThis synthetic shop runs twice. Both clusters have four workers and get the same request attempts. **Blue** merges worker metrics with [otel-cluster-metrics](https://www.npmjs.com/package/@adityareddy-dev/otel-cluster-metrics). **Orange** scrapes one stock exporter on a shared port. **Green** independently counts HTTP responses received by the load generator, including 500s. Every four minutes a worker is replaced.\n\nA hard kill can lose increments since the last worker snapshot, normally at most 10 seconds. The merged count is telemetry, not a billing ledger. Transport failures and in-flight responses can also separate the client and server counts."
       },
       "datasource": {
         "type": "prometheus",
@@ -74,13 +65,13 @@
         "x": 0,
         "y": 0,
         "w": 24,
-        "h": 4
+        "h": 6
       }
     },
     {
       "type": "stat",
-      "title": "The usual setup reports",
-      "description": "Requests a second as the usual setup reports them, divided by the real count from the whole-shop endpoint, over the last hour. The right answer is 1\u00d7.",
+      "title": "Stock / client responses",
+      "description": "Stock exporter request rate divided by responses received from the stock shop, measured independently in the load generator. Includes 500 responses. Both use a one-hour window. A value near 1x is expected with correct counting. Warm-up, in-flight responses and transport failures affect the comparison.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -91,7 +82,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(shop_requests_total{job=\"shop-api-stock\"}[1h])) / sum(rate(shop_requests_total{job=\"shop-api\"}[1h]))",
+          "expr": "sum(rate(shop_requests_total{job=\"shop-api-stock\"}[1h])) / sum(rate(load_responses_total{target=\"shop-api-stock\"}[1h]))",
           "legendFormat": "__auto",
           "refId": "A",
           "range": false,
@@ -100,7 +91,7 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "suffix:\u00d7 the real traffic",
+          "unit": "suffix:\u00d7",
           "color": {
             "mode": "fixed",
             "fixedColor": "#d95926"
@@ -114,7 +105,7 @@
               }
             ]
           },
-          "decimals": 1
+          "decimals": 2
         },
         "overrides": []
       },
@@ -136,15 +127,15 @@
       "id": 2,
       "gridPos": {
         "x": 0,
-        "y": 4,
+        "y": 6,
         "w": 8,
         "h": 8
       }
     },
     {
       "type": "timeseries",
-      "title": "Requests a second: same visitors, two counts",
-      "description": "Both shops get exactly the same visitors, so the lines should sit on top of each other. Orange runs high because every time its count falls, Prometheus reads the fall as a restart and adds the count again. Violet bars mark each worker swap.",
+      "title": "Request rate vs client responses",
+      "description": "Blue is the merged endpoint. Orange is the stock exporter. Green independently counts responses received from the merged shop, including HTTP 500. Violet markers infer replacement workers from new worker IDs, without identifying the exit signal.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -166,7 +157,7 @@
             "uid": "${datasource}"
           },
           "expr": "sum(rate(shop_requests_total{job=\"shop-api-stock\"}[$__rate_interval]))",
-          "legendFormat": "usual setup, one count per worker",
+          "legendFormat": "stock exporter on shared port",
           "refId": "B",
           "range": true
         },
@@ -180,6 +171,16 @@
           "refId": "R",
           "range": true,
           "interval": "15s"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(rate(load_responses_total{target=\"shop-api\"}[$__rate_interval]))",
+          "legendFormat": "responses received by client",
+          "refId": "C",
+          "range": true
         }
       ],
       "fieldConfig": {
@@ -284,6 +285,35 @@
                 }
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "C"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    6,
+                    4
+                  ]
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              }
+            ]
           }
         ]
       },
@@ -305,15 +335,15 @@
       "id": 3,
       "gridPos": {
         "x": 8,
-        "y": 4,
+        "y": 6,
         "w": 16,
         "h": 8
       }
     },
     {
       "type": "stat",
-      "title": "Times the count started over, last hour",
-      "description": "A request count should only go up. Each time it falls, Prometheus assumes the app restarted and guesses the missing part. The whole-shop count never falls. The usual setup falls hundreds of times an hour: at each worker swap, and each time a different worker answers.",
+      "title": "Counter decreases across all series, last hour",
+      "description": "Sum of resets() per route and status series, not a count of worker exits. Switching the worker serving the shared stock port can look like a reset. Merged worker totals are retained, but a primary restart resets those totals too.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -336,7 +366,7 @@
             "uid": "${datasource}"
           },
           "expr": "sum(resets(shop_requests_total{job=\"shop-api-stock\"}[1h]))",
-          "legendFormat": "usual setup, one count per worker",
+          "legendFormat": "stock exporter on shared port",
           "refId": "B",
           "range": false,
           "instant": true
@@ -411,7 +441,7 @@
       "id": 4,
       "gridPos": {
         "x": 0,
-        "y": 12,
+        "y": 14,
         "w": 8,
         "h": 7
       }
@@ -419,7 +449,7 @@
     {
       "type": "timeseries",
       "title": "Workers the graph can see (the shop runs four)",
-      "description": "Both shops run four workers. The whole-shop endpoint reports every worker on each scrape. The usual setup only ever shows the one worker that answered.",
+      "description": "Both shops run four workers. The merged endpoint reports all live worker gauges. The stock exporter reports only the worker answering that scrape. Replacement startup can briefly reduce the live count.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -441,7 +471,7 @@
             "uid": "${datasource}"
           },
           "expr": "count(worker_heap_used{job=\"shop-api-stock\"})",
-          "legendFormat": "usual setup, one count per worker",
+          "legendFormat": "stock exporter on shared port",
           "refId": "B",
           "range": true
         }
@@ -518,139 +548,71 @@
       "id": 5,
       "gridPos": {
         "x": 8,
-        "y": 12,
+        "y": 14,
         "w": 8,
         "h": 7
       }
     },
     {
-      "type": "barchart",
-      "title": "Real use: npm downloads per week",
+      "type": "stat",
+      "title": "Merged / client responses",
+      "description": "Merged request rate divided by HTTP responses received from the merged shop, independently counted by the load generator. Includes 500 responses. SIGKILL may lose recent metrics, and transport failures can also separate these counts. This is a comparison, not a lossless guarantee.",
       "datasource": {
-        "type": "yesoreyeram-infinity-datasource",
-        "uid": "${infinity}"
+        "type": "prometheus",
+        "uid": "${datasource}"
       },
-      "description": "Weekly downloads of @adityareddy-dev/otel-cluster-metrics from the npm registry. Week 44 is Oct 26 to Nov 1, 2026, the week of the first release (Oct 28). The current week is still counting, and npm adds each day a day later.",
       "targets": [
         {
           "datasource": {
-            "type": "yesoreyeram-infinity-datasource",
-            "uid": "${infinity}"
+            "type": "prometheus",
+            "uid": "${datasource}"
           },
+          "expr": "sum(rate(shop_requests_total{job=\"shop-api\"}[1h])) / sum(rate(load_responses_total{target=\"shop-api\"}[1h]))",
+          "legendFormat": "__auto",
           "refId": "A",
-          "type": "json",
-          "source": "url",
-          "parser": "backend",
-          "format": "table",
-          "url": "https://api.npmjs.org/downloads/range/2026-10-26:2030-12-31/@adityareddy-dev/otel-cluster-metrics",
-          "url_options": {
-            "method": "GET",
-            "data": ""
-          },
-          "root_selector": "downloads",
-          "columns": [
-            {
-              "selector": "day",
-              "text": "day",
-              "type": "string"
-            },
-            {
-              "selector": "downloads",
-              "text": "downloads",
-              "type": "number"
-            }
-          ]
-        }
-      ],
-      "transformations": [
-        {
-          "id": "convertFieldType",
-          "options": {
-            "fields": {},
-            "conversions": [
-              {
-                "targetField": "day",
-                "destinationType": "time",
-                "dateFormat": "YYYY-MM-DD"
-              }
-            ]
-          }
-        },
-        {
-          "id": "formatTime",
-          "options": {
-            "timeField": "day",
-            "outputFormat": "[Week ]W",
-            "useTimezone": false
-          }
-        },
-        {
-          "id": "groupBy",
-          "options": {
-            "fields": {
-              "day": {
-                "aggregations": [],
-                "operation": "groupby"
-              },
-              "downloads": {
-                "aggregations": [
-                  "sum"
-                ],
-                "operation": "aggregate"
-              }
-            }
-          }
-        },
-        {
-          "id": "organize",
-          "options": {
-            "renameByName": {
-              "day": "Week",
-              "downloads (sum)": "downloads"
-            }
-          }
+          "range": false,
+          "instant": true
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
-          "decimals": 0,
+          "unit": "suffix:\u00d7",
           "color": {
             "mode": "fixed",
-            "fixedColor": "#199e70"
+            "fixedColor": "blue"
           },
-          "custom": {
-            "fillOpacity": 80,
-            "lineWidth": 0,
-            "axisSoftMin": 0,
-            "gradientMode": "none"
-          }
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 2
         },
         "overrides": []
       },
       "options": {
-        "xField": "Week",
-        "orientation": "vertical",
-        "showValue": "always",
-        "stacking": "none",
-        "barWidth": 0.6,
-        "groupWidth": 0.7,
-        "xTickLabelRotation": 0,
-        "legend": {
-          "showLegend": false,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": []
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
         },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "wideLayout": true,
+        "showPercentChange": false
       },
       "id": 6,
       "gridPos": {
         "x": 16,
-        "y": 12,
+        "y": 14,
         "w": 8,
         "h": 7
       }
@@ -685,7 +647,7 @@
                 "uid": "${datasource}"
               },
               "expr": "sum(shop_requests_total{job=\"shop-api-stock\"})",
-              "legendFormat": "usual setup, one count per worker",
+              "legendFormat": "stock exporter on shared port",
               "refId": "B",
               "range": true
             },
@@ -823,7 +785,7 @@
           "id": 8,
           "gridPos": {
             "x": 0,
-            "y": 20,
+            "y": 22,
             "w": 16,
             "h": 10
           }
@@ -831,7 +793,7 @@
         {
           "type": "stat",
           "title": "Requests counted, whole shop",
-          "description": "Every request since the primary started, across all four workers.",
+          "description": "Latest retained worker snapshots since the primary started. A graceful final preserves the leaving worker totals. A hard kill can lose increments recorded after its last snapshot.",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -887,7 +849,7 @@
           "id": 9,
           "gridPos": {
             "x": 16,
-            "y": 20,
+            "y": 22,
             "w": 8,
             "h": 5
           }
@@ -951,7 +913,7 @@
           "id": 10,
           "gridPos": {
             "x": 16,
-            "y": 25,
+            "y": 27,
             "w": 8,
             "h": 5
           }
@@ -981,7 +943,7 @@
                 "uid": "${datasource}"
               },
               "expr": "histogram_quantile(0.95, sum by (le) (rate(shop_request_duration_bucket{job=\"shop-api-stock\"}[$__rate_interval])))",
-              "legendFormat": "usual setup, one count per worker",
+              "legendFormat": "stock exporter on shared port",
               "refId": "B",
               "range": true
             }
@@ -1058,7 +1020,7 @@
           "id": 11,
           "gridPos": {
             "x": 0,
-            "y": 30,
+            "y": 32,
             "w": 24,
             "h": 8
           }
@@ -1067,7 +1029,7 @@
       "id": 7,
       "gridPos": {
         "x": 0,
-        "y": 19,
+        "y": 21,
         "w": 24,
         "h": 1
       }
@@ -1184,7 +1146,7 @@
           "id": 13,
           "gridPos": {
             "x": 0,
-            "y": 39,
+            "y": 41,
             "w": 8,
             "h": 8
           }
@@ -1291,7 +1253,7 @@
           "id": 14,
           "gridPos": {
             "x": 8,
-            "y": 39,
+            "y": 41,
             "w": 8,
             "h": 8
           }
@@ -1373,7 +1335,7 @@
           "id": 15,
           "gridPos": {
             "x": 16,
-            "y": 39,
+            "y": 41,
             "w": 8,
             "h": 8
           }
@@ -1480,7 +1442,7 @@
           "id": 16,
           "gridPos": {
             "x": 0,
-            "y": 47,
+            "y": 49,
             "w": 12,
             "h": 8
           }
@@ -1543,7 +1505,7 @@
           "id": 17,
           "gridPos": {
             "x": 12,
-            "y": 47,
+            "y": 49,
             "w": 12,
             "h": 8
           }
@@ -1607,7 +1569,7 @@
           "id": 18,
           "gridPos": {
             "x": 0,
-            "y": 55,
+            "y": 57,
             "w": 6,
             "h": 4
           }
@@ -1671,7 +1633,7 @@
           "id": 19,
           "gridPos": {
             "x": 6,
-            "y": 55,
+            "y": 57,
             "w": 6,
             "h": 4
           }
@@ -1738,7 +1700,7 @@
           "id": 20,
           "gridPos": {
             "x": 12,
-            "y": 55,
+            "y": 57,
             "w": 6,
             "h": 4
           }
@@ -1802,16 +1764,111 @@
           "id": 21,
           "gridPos": {
             "x": 18,
-            "y": 55,
+            "y": 57,
             "w": 6,
             "h": 4
+          }
+        },
+        {
+          "type": "stat",
+          "title": "Client transport failures, last hour",
+          "description": "Failed or timed-out requests per target. HTTP 500 responses count as received responses and are not transport failures. A mismatch between server and client counters is not solely evidence of telemetry loss.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "sum by (target) (increase(load_errors_total[1h]))",
+              "legendFormat": "{{target}}",
+              "refId": "A",
+              "range": false,
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "#3987e5"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#3987e5",
+                    "value": null
+                  }
+                ]
+              },
+              "decimals": 0
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "one count for the whole shop"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#3987e5"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "usual setup, one count per worker"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#d95926"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "justifyMode": "center",
+            "wideLayout": true,
+            "showPercentChange": false
+          },
+          "id": 24,
+          "gridPos": {
+            "x": 0,
+            "y": 61,
+            "w": 12,
+            "h": 5
           }
         }
       ],
       "id": 12,
       "gridPos": {
         "x": 0,
-        "y": 38,
+        "y": 40,
         "w": 24,
         "h": 1
       }
@@ -1826,7 +1883,7 @@
           "title": "",
           "options": {
             "mode": "markdown",
-            "content": "**shop-api** (blue) uses [@adityareddy-dev/otel-cluster-metrics](https://www.npmjs.com/package/@adityareddy-dev/otel-cluster-metrics): workers report to the primary, which serves one `/metrics` for the whole cluster. **shop-api-stock** (orange) runs the stock OpenTelemetry Prometheus exporter in each worker on the shared port, so each scrape reaches whichever worker accepts it. Every four minutes one worker is retired and replaced, one in five times with SIGKILL.\n\nAn OpenTelemetry Collector scrapes both `/metrics` endpoints every 15 seconds and sends them to Grafana Cloud over OTLP. A load generator sends the same requests to both clusters, on a one-hour wave between about 5 and 25 requests a second.\n\n- Package: [@adityareddy-dev/otel-cluster-metrics on npm](https://www.npmjs.com/package/@adityareddy-dev/otel-cluster-metrics), source on [GitHub](https://github.com/adityareddy-dev/otel-cluster-metrics)\n- Run this dashboard yourself: [examples/grafana](https://github.com/adityareddy-dev/otel-cluster-metrics/tree/main/examples/grafana) (`docker compose up`, then open Grafana on port 3000)\n- Dashboard JSON with a data source picker: [dashboard.json](https://github.com/adityareddy-dev/otel-cluster-metrics/blob/main/examples/grafana/dashboard.json)"
+            "content": "**shop-api** uses [otel-cluster-metrics](https://github.com/adityareddy-dev/otel-cluster-metrics). **shop-api-stock** runs a stock OpenTelemetry Prometheus exporter in each worker on one shared port. The independent **load** process counts attempts, received responses, transport failures and in-flight requests for each target at `/metrics`.\n\nPrometheus scrapes all three every 15 seconds. The default demo replaces the oldest worker every four minutes, choosing SIGKILL with 20% probability and SIGTERM otherwise. Violet bars show new worker IDs, not exit signals. The primary logs each actual exit signal. A hard kill can lose the last worker snapshot window, normally up to 10 seconds. A primary restart loses the retained aggregate.\n\nRun [examples/grafana](https://github.com/adityareddy-dev/otel-cluster-metrics/tree/main/examples/grafana) with `docker compose up`, then open Grafana on port 3000. Wait at least two scrapes for rates. The shape changes as workers age and restart. No fixed inflation factor is promised. For known-input correctness, run `npm test` and `node examples/single-task-workers.cjs` from the repository root."
           },
           "datasource": {
             "type": "prometheus",
@@ -1849,7 +1906,7 @@
           "id": 23,
           "gridPos": {
             "x": 0,
-            "y": 60,
+            "y": 67,
             "w": 24,
             "h": 6
           }
@@ -1858,10 +1915,12 @@
       "id": 22,
       "gridPos": {
         "x": 0,
-        "y": 59,
+        "y": 66,
         "w": 24,
         "h": 1
       }
     }
-  ]
+  ],
+  "__inputs": [],
+  "__requires": []
 }

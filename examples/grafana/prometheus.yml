@@ -7,3 +7,6 @@ scrape_configs:
   - job_name: shop-api-stock
     static_configs:
       - targets: ['shop-api-stock:9464']
+  - job_name: load
+    static_configs:
+      - targets: ['load:9100']
