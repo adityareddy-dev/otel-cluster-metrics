@@ -223,7 +223,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "usual setup, one count per worker"
+              "options": "stock exporter on shared port"
             },
             "properties": [
               {
@@ -409,7 +409,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "usual setup, one count per worker"
+              "options": "stock exporter on shared port"
             },
             "properties": [
               {
@@ -516,7 +516,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "usual setup, one count per worker"
+              "options": "stock exporter on shared port"
             },
             "properties": [
               {
@@ -703,7 +703,7 @@
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "usual setup, one count per worker"
+                  "options": "stock exporter on shared port"
                 },
                 "properties": [
                   {
@@ -988,7 +988,7 @@
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "usual setup, one count per worker"
+                  "options": "stock exporter on shared port"
                 },
                 "properties": [
                   {
@@ -1827,7 +1827,7 @@
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "usual setup, one count per worker"
+                  "options": "stock exporter on shared port"
                 },
                 "properties": [
                   {
