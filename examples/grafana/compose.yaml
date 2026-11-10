@@ -3,7 +3,7 @@ services:
   install:
     image: node:24-slim
     working_dir: /app
-    command: ["npm", "install", "--no-audit", "--no-fund"]
+    command: ["npm", "ci", "--no-audit", "--no-fund"]
     volumes: [".:/app"]
   shop-api:
     image: node:24-slim
@@ -27,14 +27,13 @@ services:
     volumes: [".:/app:ro"]
     depends_on: [shop-api, shop-api-stock]
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.15.1
     volumes: ["./prometheus.yml:/etc/prometheus/prometheus.yml:ro"]
   grafana:
     image: grafana/grafana:12.3.0
     environment:
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
-      GF_PLUGINS_PREINSTALL: yesoreyeram-infinity-datasource
     volumes:
       - ./provisioning.yaml:/etc/grafana/provisioning/datasources/ds.yaml:ro
       - ./dashboards.yaml:/etc/grafana/provisioning/dashboards/db.yaml:ro
