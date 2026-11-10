@@ -40,7 +40,7 @@
       "title": "",
       "options": {
         "mode": "markdown",
-        "content": "## Is my shop as busy as my graph says?\nThis synthetic shop runs twice. Both clusters have four workers and get the same request attempts. **Blue** merges worker metrics with [otel-cluster-metrics](https://www.npmjs.com/package/@adityareddy-dev/otel-cluster-metrics). **Orange** scrapes one stock exporter on a shared port. **Green** independently counts HTTP responses received by the load generator, including 500s. Every four minutes a worker is replaced.\n\nA hard kill can lose increments since the last worker snapshot, normally at most 10 seconds. The merged count is telemetry, not a billing ledger. Transport failures and in-flight responses can also separate the client and server counts."
+        "content": "## Is my shop as busy as my graph says?\nThis synthetic shop runs twice. Both clusters have four workers and get the same request attempts. In the request-rate panel, **blue** merges worker metrics with [otel-cluster-metrics](https://www.npmjs.com/package/@adityareddy-dev/otel-cluster-metrics). **Orange** scrapes one stock exporter on a shared port. **Green** counts HTTP responses that the load generator receives from the merged shop, including 500s. Every four minutes a worker is replaced.\n\nA hard kill can lose increments since the last worker snapshot, normally at most 10 seconds. The merged count is telemetry, not a billing ledger. Transport failures and in-flight responses can also separate the client and server counts."
       },
       "datasource": {
         "type": "prometheus",
@@ -129,7 +129,7 @@
         "x": 0,
         "y": 6,
         "w": 8,
-        "h": 8
+        "h": 9
       }
     },
     {
@@ -178,7 +178,7 @@
             "uid": "${datasource}"
           },
           "expr": "sum(rate(load_responses_total{target=\"shop-api\"}[$__rate_interval]))",
-          "legendFormat": "responses received by client",
+          "legendFormat": "responses received from merged shop",
           "refId": "C",
           "range": true
         }
@@ -337,13 +337,13 @@
         "x": 8,
         "y": 6,
         "w": 16,
-        "h": 8
+        "h": 9
       }
     },
     {
       "type": "stat",
       "title": "Counter decreases across all series, last hour",
-      "description": "Sum of resets() per route and status series, not a count of worker exits. Switching the worker serving the shared stock port can look like a reset. Merged worker totals are retained, but a primary restart resets those totals too.",
+      "description": "Counts decreases across route and status series, not worker exits. Switching the worker serving the shared stock port can look like a reset. Merged worker totals are retained, but a primary restart resets those totals too.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -441,7 +441,7 @@
       "id": 4,
       "gridPos": {
         "x": 0,
-        "y": 14,
+        "y": 15,
         "w": 8,
         "h": 7
       }
@@ -548,7 +548,7 @@
       "id": 5,
       "gridPos": {
         "x": 8,
-        "y": 14,
+        "y": 15,
         "w": 8,
         "h": 7
       }
@@ -612,7 +612,7 @@
       "id": 6,
       "gridPos": {
         "x": 16,
-        "y": 14,
+        "y": 15,
         "w": 8,
         "h": 7
       }
@@ -625,7 +625,7 @@
         {
           "type": "timeseries",
           "title": "Requests counter as Prometheus sees it",
-          "description": "The raw running count. The whole-shop count climbs steadily. The usual setup shows one worker's count per scrape, so it jumps between workers and drops when a worker restarts. Violet bars mark each worker swap.",
+          "description": "The raw running count. The merged endpoint retains worker totals. The stock endpoint shows one worker per scrape, so switching workers can make the count jump or drop. Violet markers infer new worker IDs from successive samples.",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -785,7 +785,7 @@
           "id": 8,
           "gridPos": {
             "x": 0,
-            "y": 22,
+            "y": 23,
             "w": 16,
             "h": 10
           }
@@ -849,7 +849,7 @@
           "id": 9,
           "gridPos": {
             "x": 16,
-            "y": 22,
+            "y": 23,
             "w": 8,
             "h": 5
           }
@@ -913,7 +913,7 @@
           "id": 10,
           "gridPos": {
             "x": 16,
-            "y": 27,
+            "y": 28,
             "w": 8,
             "h": 5
           }
@@ -1020,7 +1020,7 @@
           "id": 11,
           "gridPos": {
             "x": 0,
-            "y": 32,
+            "y": 33,
             "w": 24,
             "h": 8
           }
@@ -1029,7 +1029,7 @@
       "id": 7,
       "gridPos": {
         "x": 0,
-        "y": 21,
+        "y": 22,
         "w": 24,
         "h": 1
       }
@@ -1146,7 +1146,7 @@
           "id": 13,
           "gridPos": {
             "x": 0,
-            "y": 41,
+            "y": 42,
             "w": 8,
             "h": 8
           }
@@ -1253,7 +1253,7 @@
           "id": 14,
           "gridPos": {
             "x": 8,
-            "y": 41,
+            "y": 42,
             "w": 8,
             "h": 8
           }
@@ -1335,7 +1335,7 @@
           "id": 15,
           "gridPos": {
             "x": 16,
-            "y": 41,
+            "y": 42,
             "w": 8,
             "h": 8
           }
@@ -1343,7 +1343,7 @@
         {
           "type": "timeseries",
           "title": "In-flight requests and email queue, whole cluster",
-          "description": "Non-monotonic sums add current worker values and drop exited workers. Each checkout queues confirmation emails, and queue.depth is summed across workers with gaugeReducers: { \"queue.depth\": \"sum\" }.",
+          "description": "Non-monotonic sums add current worker values and drop exited workers. Each checkout queues confirmation emails, and the queue gauge is summed across live workers.",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -1442,7 +1442,7 @@
           "id": 16,
           "gridPos": {
             "x": 0,
-            "y": 49,
+            "y": 50,
             "w": 12,
             "h": 8
           }
@@ -1450,7 +1450,7 @@
         {
           "type": "timeseries",
           "title": "V8 heap per worker",
-          "description": "Gauges stay one series per worker, keyed by cluster.worker.id (worker ID plus boot ID). A line ends when its worker is retired and a new one starts with the next ID.",
+          "description": "Heap gauges use a separate series for each worker and boot. A line ends when its worker is retired and a new one starts with the next ID.",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -1505,7 +1505,7 @@
           "id": 17,
           "gridPos": {
             "x": 12,
-            "y": 49,
+            "y": 50,
             "w": 12,
             "h": 8
           }
@@ -1569,7 +1569,7 @@
           "id": 18,
           "gridPos": {
             "x": 0,
-            "y": 57,
+            "y": 58,
             "w": 6,
             "h": 4
           }
@@ -1633,7 +1633,7 @@
           "id": 19,
           "gridPos": {
             "x": 6,
-            "y": 57,
+            "y": 58,
             "w": 6,
             "h": 4
           }
@@ -1700,7 +1700,7 @@
           "id": 20,
           "gridPos": {
             "x": 12,
-            "y": 57,
+            "y": 58,
             "w": 6,
             "h": 4
           }
@@ -1764,7 +1764,7 @@
           "id": 21,
           "gridPos": {
             "x": 18,
-            "y": 57,
+            "y": 58,
             "w": 6,
             "h": 4
           }
@@ -1812,7 +1812,7 @@
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "one count for the whole shop"
+                  "options": "shop-api"
                 },
                 "properties": [
                   {
@@ -1827,7 +1827,7 @@
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "stock exporter on shared port"
+                  "options": "shop-api-stock"
                 },
                 "properties": [
                   {
@@ -1859,7 +1859,7 @@
           "id": 24,
           "gridPos": {
             "x": 0,
-            "y": 61,
+            "y": 62,
             "w": 12,
             "h": 5
           }
@@ -1868,7 +1868,7 @@
       "id": 12,
       "gridPos": {
         "x": 0,
-        "y": 40,
+        "y": 41,
         "w": 24,
         "h": 1
       }
@@ -1906,7 +1906,7 @@
           "id": 23,
           "gridPos": {
             "x": 0,
-            "y": 67,
+            "y": 68,
             "w": 24,
             "h": 6
           }
@@ -1915,7 +1915,7 @@
       "id": 22,
       "gridPos": {
         "x": 0,
-        "y": 66,
+        "y": 67,
         "w": 24,
         "h": 1
       }
