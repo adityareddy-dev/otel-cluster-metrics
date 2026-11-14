@@ -66,6 +66,25 @@ server.listen(9464);
 
 Use `createPrometheusHandler` with `preventServerStart: true`. The stock exporter HTTP server returns 200 even when its collection rejects. This handler calls the exporter's public `collect()` method and serializer, returns 503 for any incomplete round, and exposes no partial metrics on failure. If configuring serializer options such as a prefix, pass an explicitly configured `PrometheusSerializer` as the handler's second argument. The helper does not copy exporter serializer settings automatically.
 
+## Push over OTLP instead
+
+The producer works with any metric reader, so the primary can push the merged totals over OTLP, for example straight to Grafana Cloud, with no Prometheus scrape in between. Use a `PeriodicExportingMetricReader` in place of the Prometheus exporter and install `@opentelemetry/exporter-metrics-otlp-http` next to the other OpenTelemetry packages:
+
+```js
+const { MeterProvider, PeriodicExportingMetricReader } = require('@opentelemetry/sdk-metrics');
+const { OTLPMetricExporter } = require('@opentelemetry/exporter-metrics-otlp-http');
+
+const producer = new ClusterMetricProducer({ resource });
+const reader = new PeriodicExportingMetricReader({
+  exporter: new OTLPMetricExporter(),
+  exportIntervalMillis: 60000,
+  metricProducers: [producer],
+});
+const provider = new MeterProvider({ resource, readers: [reader], sdkMetricsEnabled: false });
+```
+
+The exporter reads `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` and `OTEL_EXPORTER_OTLP_HEADERS`. A round that misses a worker exports nothing for that interval, so the backend never gets a partial total, and the next interval sends the full one. The reader does not throw when an export fails. It logs through the OpenTelemetry `diag` logger, so set one up or check the exporter result if you need to know. `examples/otlp-push.cjs` shows both: it runs two workers against a local receiver, or against your endpoint when those variables are set, and exits non-zero if the export fails.
+
 ## Merge behavior
 
 | Emitted data | Behavior |
@@ -149,7 +168,7 @@ Defaults:
 
 Limits fail collection instead of evicting cumulative totals. Repeated worker exits do not retain a list of old epochs: there is one retained total per series however many workers have come and gone. A push or final that would breach a limit is discarded with a diagnostic and the committed state stays as it was. Changing attribute sets can still reach the series limit and require a primary restart or a larger explicit limit. Tune limits on both sides together. The SDK also applies its own reader cardinality limit. `producer.stateSize` exposes committed worker, series and retired-series counts. Call `producer.shutdown()` to cancel an in-flight round and release retained state.
 
-There are no push exporters, delta conversion, exponential histograms, exemplars, multiple resources, worker threads or PM2-specific integration in v0. Exemplars are not transported. Delta replies and exponential histograms fail explicitly. Worker readers always select cumulative temporality.
+There are no delta conversion, exponential histograms, exemplars, multiple resources, worker threads or PM2-specific integration in v0. Exemplars are not transported. Delta replies and exponential histograms fail explicitly. Worker readers always select cumulative temporality.
 
 ## Run the demo and checks
 
@@ -160,6 +179,8 @@ npm run demo
 ```
 
 The demo starts two real workers using SDK instruments, scrapes through the experimental exporter hook, checks the combined counter, separate gauges and explicit histogram buckets, then verifies that a repeated scrape has unchanged values. It exits after the checks.
+
+`node examples/otlp-push.cjs` runs the OTLP version described in Push over OTLP instead.
 
 `examples/grafana` runs a four-worker app with this package next to the same app on the stock exporter, with Prometheus and a Grafana dashboard that shows the difference. There's a live copy on Grafana Cloud linked from its README.
 
