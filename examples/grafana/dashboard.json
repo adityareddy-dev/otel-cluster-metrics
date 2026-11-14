@@ -40,7 +40,7 @@
       "title": "",
       "options": {
         "mode": "markdown",
-        "content": "## Is my shop as busy as my graph says?\nThis synthetic shop runs twice. Both clusters have four workers and get the same request attempts. In the request-rate panel, **blue** merges worker metrics with [otel-cluster-metrics](https://www.npmjs.com/package/@adityareddy-dev/otel-cluster-metrics). **Orange** scrapes one stock exporter on a shared port. **Green** counts HTTP responses that the load generator receives from the merged shop, including 500s. Every four minutes a worker is replaced.\n\nA hard kill can lose increments since the last worker snapshot, normally at most 10 seconds. The merged count is telemetry, not a billing ledger. Transport failures and in-flight responses can also separate the client and server counts."
+        "content": "## Is my shop as busy as my graph says?\nThe usual OpenTelemetry setup kept showing my shop way more visitors than it really got. So I run the same made-up shop twice and send the same visitors to both. Each one runs as four copies of the same Node.js app, and every four minutes one copy gets swapped out (the faint violet lines).\n\n**Orange** is the usual setup. **Blue** is my package, [otel-cluster-metrics](https://www.npmjs.com/package/@adityareddy-dev/otel-cluster-metrics). **Green** is what the visitors actually got back, counted by the program sending them, which has no OpenTelemetry code in it."
       },
       "datasource": {
         "type": "prometheus",
@@ -65,13 +65,13 @@
         "x": 0,
         "y": 0,
         "w": 24,
-        "h": 6
+        "h": 5
       }
     },
     {
       "type": "stat",
-      "title": "Stock / client responses",
-      "description": "Stock exporter request rate divided by responses received from the stock shop, measured independently in the load generator. Includes 500 responses. Both use a one-hour window. A value near 1x is expected with correct counting. Warm-up, in-flight responses and transport failures affect the comparison.",
+      "title": "Usual setup vs what visitors got",
+      "description": "The usual setup's count divided by the answers the visitors actually got back from that shop, over the last hour. 1\u00d7 would mean it counts right.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -127,15 +127,15 @@
       "id": 2,
       "gridPos": {
         "x": 0,
-        "y": 6,
-        "w": 8,
+        "y": 5,
+        "w": 6,
         "h": 9
       }
     },
     {
       "type": "timeseries",
-      "title": "Request rate vs client responses",
-      "description": "Blue is the merged endpoint. Orange is the stock exporter. Green independently counts responses received from the merged shop, including HTTP 500. Violet markers infer replacement workers from new worker IDs, without identifying the exit signal.",
+      "title": "Visitors a second, counted three ways",
+      "description": "Orange jumps because Prometheus reads a different copy each time and thinks the count started over. Blue and green sit on top of each other. The violet lines mark a new copy of the app starting.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -147,7 +147,7 @@
             "uid": "${datasource}"
           },
           "expr": "sum(rate(shop_requests_total{job=\"shop-api\"}[$__rate_interval]))",
-          "legendFormat": "one count for the whole shop",
+          "legendFormat": "My package",
           "refId": "A",
           "range": true
         },
@@ -157,7 +157,7 @@
             "uid": "${datasource}"
           },
           "expr": "sum(rate(shop_requests_total{job=\"shop-api-stock\"}[$__rate_interval]))",
-          "legendFormat": "stock exporter on shared port",
+          "legendFormat": "Usual setup",
           "refId": "B",
           "range": true
         },
@@ -178,7 +178,7 @@
             "uid": "${datasource}"
           },
           "expr": "sum(rate(load_responses_total{target=\"shop-api\"}[$__rate_interval]))",
-          "legendFormat": "responses received from merged shop",
+          "legendFormat": "What visitors got back",
           "refId": "C",
           "range": true
         }
@@ -208,7 +208,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "one count for the whole shop"
+              "options": "My package"
             },
             "properties": [
               {
@@ -223,7 +223,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "stock exporter on shared port"
+              "options": "Usual setup"
             },
             "properties": [
               {
@@ -245,7 +245,7 @@
                 "id": "color",
                 "value": {
                   "mode": "fixed",
-                  "fixedColor": "#9085e9"
+                  "fixedColor": "rgba(144, 133, 233, 0.35)"
                 }
               },
               {
@@ -334,229 +334,16 @@
       },
       "id": 3,
       "gridPos": {
-        "x": 8,
-        "y": 6,
-        "w": 16,
+        "x": 6,
+        "y": 5,
+        "w": 12,
         "h": 9
       }
     },
     {
       "type": "stat",
-      "title": "Counter decreases across all series, last hour",
-      "description": "Counts decreases across route and status series, not worker exits. Switching the worker serving the shared stock port can look like a reset. Merged worker totals are retained, but a primary restart resets those totals too.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "sum(resets(shop_requests_total{job=\"shop-api\"}[1h]))",
-          "legendFormat": "one count for the whole shop",
-          "refId": "A",
-          "range": false,
-          "instant": true
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "sum(resets(shop_requests_total{job=\"shop-api-stock\"}[1h]))",
-          "legendFormat": "stock exporter on shared port",
-          "refId": "B",
-          "range": false,
-          "instant": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "#3987e5"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "#3987e5",
-                "value": null
-              }
-            ]
-          },
-          "decimals": 0
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "one count for the whole shop"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#3987e5"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "stock exporter on shared port"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#d95926"
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "colorMode": "value",
-        "graphMode": "none",
-        "textMode": "value_and_name",
-        "justifyMode": "center",
-        "wideLayout": true,
-        "showPercentChange": false
-      },
-      "id": 4,
-      "gridPos": {
-        "x": 0,
-        "y": 15,
-        "w": 8,
-        "h": 7
-      }
-    },
-    {
-      "type": "timeseries",
-      "title": "Workers the graph can see (the shop runs four)",
-      "description": "Both shops run four workers. The merged endpoint reports all live worker gauges. The stock exporter reports only the worker answering that scrape. Replacement startup can briefly reduce the live count.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "count(worker_heap_used{job=\"shop-api\"})",
-          "legendFormat": "one count for the whole shop",
-          "refId": "A",
-          "range": true
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "count(worker_heap_used{job=\"shop-api-stock\"})",
-          "legendFormat": "stock exporter on shared port",
-          "refId": "B",
-          "range": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "lineWidth": 2,
-            "fillOpacity": 0,
-            "showPoints": "never",
-            "drawStyle": "line",
-            "spanNulls": true,
-            "gradientMode": "none",
-            "axisSoftMin": 0,
-            "insertNulls": false,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            }
-          },
-          "color": {
-            "mode": "palette-classic"
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "one count for the whole shop"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#3987e5"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "stock exporter on shared port"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#d95926"
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "min",
-            "max"
-          ],
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "id": 5,
-      "gridPos": {
-        "x": 8,
-        "y": 15,
-        "w": 8,
-        "h": 7
-      }
-    },
-    {
-      "type": "stat",
-      "title": "Merged / client responses",
-      "description": "Merged request rate divided by HTTP responses received from the merged shop, independently counted by the load generator. Includes 500 responses. SIGKILL may lose recent metrics, and transport failures can also separate these counts. This is a comparison, not a lossless guarantee.",
+      "title": "My package vs what visitors got",
+      "description": "My package's count divided by the answers the visitors got back, over the last hour. If a copy is killed without warning, up to about 10 seconds of counts can be lost, so it can sit a little under 1\u00d7.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -611,8 +398,285 @@
       },
       "id": 6,
       "gridPos": {
+        "x": 18,
+        "y": 5,
+        "w": 6,
+        "h": 9
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Visitors the usual setup made up, last 24 hours",
+      "description": "How many more visitors the usual setup counted than the visitors actually got back, over the last 24 hours.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(increase(shop_requests_total{job=\"shop-api-stock\"}[24h])) - sum(increase(load_responses_total{target=\"shop-api-stock\"}[24h]))",
+          "legendFormat": "__auto",
+          "refId": "A",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#d95926"
+          },
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#d95926",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": true
+      },
+      "id": 125,
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 8,
+        "h": 7
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Fake count resets, last hour",
+      "description": "How often a count went down, which Prometheus reads as a restart. On my package the count only goes down if the main program itself restarts.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(resets(shop_requests_total{job=\"shop-api\"}[1h]))",
+          "legendFormat": "My package",
+          "refId": "A",
+          "range": false,
+          "instant": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(resets(shop_requests_total{job=\"shop-api-stock\"}[1h]))",
+          "legendFormat": "Usual setup",
+          "refId": "B",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#3987e5"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#3987e5",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "My package"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Usual setup"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "center",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "id": 4,
+      "gridPos": {
+        "x": 8,
+        "y": 14,
+        "w": 8,
+        "h": 7
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Copies the graph can see (the shop runs four)",
+      "description": "Both shops run four copies. Mine reports all of them every time. The usual setup only shows the copy that happened to answer.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "count(worker_heap_used{job=\"shop-api\"})",
+          "legendFormat": "My package",
+          "refId": "A",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "count(worker_heap_used{job=\"shop-api-stock\"})",
+          "legendFormat": "Usual setup",
+          "refId": "B",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "drawStyle": "line",
+            "spanNulls": true,
+            "gradientMode": "none",
+            "axisSoftMin": 0,
+            "insertNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "My package"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Usual setup"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "min",
+            "max"
+          ],
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 5,
+      "gridPos": {
         "x": 16,
-        "y": 15,
+        "y": 14,
         "w": 8,
         "h": 7
       }
@@ -637,7 +701,7 @@
                 "uid": "${datasource}"
               },
               "expr": "sum(shop_requests_total{job=\"shop-api\"})",
-              "legendFormat": "one count for the whole shop",
+              "legendFormat": "My package",
               "refId": "A",
               "range": true
             },
@@ -647,7 +711,7 @@
                 "uid": "${datasource}"
               },
               "expr": "sum(shop_requests_total{job=\"shop-api-stock\"})",
-              "legendFormat": "stock exporter on shared port",
+              "legendFormat": "Usual setup",
               "refId": "B",
               "range": true
             },
@@ -688,7 +752,7 @@
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "one count for the whole shop"
+                  "options": "My package"
                 },
                 "properties": [
                   {
@@ -703,7 +767,7 @@
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "stock exporter on shared port"
+                  "options": "Usual setup"
                 },
                 "properties": [
                   {
@@ -785,7 +849,7 @@
           "id": 8,
           "gridPos": {
             "x": 0,
-            "y": 23,
+            "y": 22,
             "w": 16,
             "h": 10
           }
@@ -849,7 +913,7 @@
           "id": 9,
           "gridPos": {
             "x": 16,
-            "y": 23,
+            "y": 22,
             "w": 8,
             "h": 5
           }
@@ -913,7 +977,7 @@
           "id": 10,
           "gridPos": {
             "x": 16,
-            "y": 28,
+            "y": 27,
             "w": 8,
             "h": 5
           }
@@ -933,7 +997,7 @@
                 "uid": "${datasource}"
               },
               "expr": "histogram_quantile(0.95, sum by (le) (rate(shop_request_duration_bucket{job=\"shop-api\"}[$__rate_interval])))",
-              "legendFormat": "one count for the whole shop",
+              "legendFormat": "My package",
               "refId": "A",
               "range": true
             },
@@ -943,7 +1007,7 @@
                 "uid": "${datasource}"
               },
               "expr": "histogram_quantile(0.95, sum by (le) (rate(shop_request_duration_bucket{job=\"shop-api-stock\"}[$__rate_interval])))",
-              "legendFormat": "stock exporter on shared port",
+              "legendFormat": "Usual setup",
               "refId": "B",
               "range": true
             }
@@ -973,7 +1037,7 @@
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "one count for the whole shop"
+                  "options": "My package"
                 },
                 "properties": [
                   {
@@ -988,7 +1052,7 @@
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "stock exporter on shared port"
+                  "options": "Usual setup"
                 },
                 "properties": [
                   {
@@ -1020,7 +1084,7 @@
           "id": 11,
           "gridPos": {
             "x": 0,
-            "y": 33,
+            "y": 32,
             "w": 24,
             "h": 8
           }
@@ -1029,7 +1093,7 @@
       "id": 7,
       "gridPos": {
         "x": 0,
-        "y": 22,
+        "y": 21,
         "w": 24,
         "h": 1
       }
@@ -1146,7 +1210,7 @@
           "id": 13,
           "gridPos": {
             "x": 0,
-            "y": 42,
+            "y": 41,
             "w": 8,
             "h": 8
           }
@@ -1253,7 +1317,7 @@
           "id": 14,
           "gridPos": {
             "x": 8,
-            "y": 42,
+            "y": 41,
             "w": 8,
             "h": 8
           }
@@ -1335,7 +1399,7 @@
           "id": 15,
           "gridPos": {
             "x": 16,
-            "y": 42,
+            "y": 41,
             "w": 8,
             "h": 8
           }
@@ -1442,7 +1506,7 @@
           "id": 16,
           "gridPos": {
             "x": 0,
-            "y": 50,
+            "y": 49,
             "w": 12,
             "h": 8
           }
@@ -1505,7 +1569,7 @@
           "id": 17,
           "gridPos": {
             "x": 12,
-            "y": 50,
+            "y": 49,
             "w": 12,
             "h": 8
           }
@@ -1569,7 +1633,7 @@
           "id": 18,
           "gridPos": {
             "x": 0,
-            "y": 58,
+            "y": 57,
             "w": 6,
             "h": 4
           }
@@ -1633,7 +1697,7 @@
           "id": 19,
           "gridPos": {
             "x": 6,
-            "y": 58,
+            "y": 57,
             "w": 6,
             "h": 4
           }
@@ -1700,7 +1764,7 @@
           "id": 20,
           "gridPos": {
             "x": 12,
-            "y": 58,
+            "y": 57,
             "w": 6,
             "h": 4
           }
@@ -1764,7 +1828,7 @@
           "id": 21,
           "gridPos": {
             "x": 18,
-            "y": 58,
+            "y": 57,
             "w": 6,
             "h": 4
           }
@@ -1859,7 +1923,7 @@
           "id": 24,
           "gridPos": {
             "x": 0,
-            "y": 62,
+            "y": 61,
             "w": 12,
             "h": 5
           }
@@ -1868,7 +1932,7 @@
       "id": 12,
       "gridPos": {
         "x": 0,
-        "y": 41,
+        "y": 40,
         "w": 24,
         "h": 1
       }
@@ -1906,7 +1970,7 @@
           "id": 23,
           "gridPos": {
             "x": 0,
-            "y": 68,
+            "y": 67,
             "w": 24,
             "h": 6
           }
@@ -1915,12 +1979,14 @@
       "id": 22,
       "gridPos": {
         "x": 0,
-        "y": 67,
+        "y": 66,
         "w": 24,
         "h": 1
       }
     }
   ],
   "__inputs": [],
-  "__requires": []
+  "__requires": [],
+  "id": 1029598536376320,
+  "version": 10
 }
