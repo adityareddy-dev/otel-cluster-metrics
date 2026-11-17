@@ -259,3 +259,4 @@ export function createPrometheusHandler(exporter: PrometheusExporter, serializer
     } catch { response.writeHead(503,{'content-type':'text/plain; charset=utf-8'}); response.end('Cluster metrics collection failed\n'); }
   };
 }
+export { checkCounting, parseCounter, CounterTracker, type CheckOptions, type CheckResult } from './check.js';
