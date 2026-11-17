@@ -78,21 +78,31 @@ export class Pm2MetricProducer implements MetricProducer {
       await producer.deadline(new Promise<void>((resolve,reject)=>{
         producer.server.once('error',reject);
         producer.server.listen(options.socketPath,()=>{producer.server.off('error',reject);resolve();});
-      }));
+      }),producer.timeout,()=>{producer.server.close(()=>{});});
       producer.server.on('error',producer.onLost);
-      await producer.deadline(new Promise<void>((resolve,reject)=>client.connect(error=>error?reject(error):resolve())));
+      await producer.deadline(new Promise<void>((resolve,reject)=>client.connect(error=>error?reject(error):resolve())),
+        producer.timeout,()=>{client.disconnect(()=>{});});
       // Axon otherwise retries silently and hides a daemon restart from its consumer.
       client.Client.client_sock.set('retry timeout',0);client.Client.client_sock.retry=0;
       client.Client.client_sock.on('close',producer.onLost);client.Client.client_sock.on('error',producer.onLost);
       return producer;
     } catch(error) {await producer.shutdown();throw error;}
   }
-  private deadline<T>(promise:Promise<T>,timeout=this.timeout):Promise<T> {
+  private deadline<T>(promise:Promise<T>,timeout=this.timeout,onLate?:()=>void):Promise<T> {
     return new Promise((resolve,reject)=>{
-      const fail=(error:Error)=>{clearTimeout(timer);this.operations.delete(fail);reject(error);};
+      let settled=false;
+      const fail=(error:Error)=>{
+        if(settled) return;settled=true;
+        clearTimeout(timer);this.operations.delete(fail);reject(error);
+      };
       const timer=setTimeout(()=>fail(new Error('PM2 operation timed out')),timeout);
       this.operations.add(fail);
-      promise.then(value=>{clearTimeout(timer);this.operations.delete(fail);resolve(value);},fail);
+      // A deadline cannot cancel PM2's work. Release resources it creates after cancellation,
+      // even when shutdown already ran before its socket existed.
+      promise.then(value=>{
+        if(settled) {onLate?.();return;}settled=true;
+        clearTimeout(timer);this.operations.delete(fail);resolve(value);
+      },error=>{if(settled) onLate?.();else fail(error);});
     });
   }
   private diagnostic(message:string):void {try {this.options.onDiagnostic?.(message);} catch {}}
@@ -174,7 +184,11 @@ export class Pm2MetricProducer implements MetricProducer {
     });return this.pending;
   }
   private async list(timeout:number):Promise<ProcessInfo[]> {
-    const list=await this.deadline(new Promise<ProcessInfo[]>((resolve,reject)=>this.client.list((error,list)=>error?reject(error):resolve(list))),timeout);
+    const list=await this.deadline(new Promise<ProcessInfo[]>((resolve,reject)=>this.client.list((error,list)=>error?reject(error):resolve(list))),timeout,()=>{
+      // PM2 list() can implicitly reconnect. Keep a healthy client after a slow round,
+      // but never retain a connection completed after shutdown or daemon loss.
+      if(this.stopped || this.failure) this.client.disconnect(()=>{});
+    });
     const selected=list.filter(p=>p.name===this.options.appName && p.pm2_env.namespace===this.namespace);
     for(const p of selected) assert(p.pm2_env.exec_mode==='cluster_mode','PM2 app must use cluster mode');
     assert(selected.length<=this.maxWorkers,'Worker limit exceeded');
