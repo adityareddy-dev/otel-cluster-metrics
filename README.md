@@ -70,6 +70,12 @@ Use `createPrometheusHandler` with `preventServerStart: true`. The stock exporte
 
 The producer works with any metric reader, so the primary can push the merged totals over OTLP, for example straight to Grafana Cloud, with no Prometheus scrape in between. Use a `PeriodicExportingMetricReader` in place of the Prometheus exporter and install `@opentelemetry/exporter-metrics-otlp-http` next to the other OpenTelemetry packages:
 
+```sh
+npm install '@opentelemetry/exporter-metrics-otlp-http@>=0.300.0 <0.302.0'
+```
+
+CI tests the OTLP HTTP exporter at 0.300.0 and the latest version in this range.
+
 ```js
 const { MeterProvider, PeriodicExportingMetricReader } = require('@opentelemetry/sdk-metrics');
 const { OTLPMetricExporter } = require('@opentelemetry/exporter-metrics-otlp-http');
