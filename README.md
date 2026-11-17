@@ -91,6 +91,35 @@ const provider = new MeterProvider({ resource, readers: [reader], sdkMetricsEnab
 
 The exporter reads `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` and `OTEL_EXPORTER_OTLP_HEADERS`. A round that misses a worker exports nothing for that interval, so the backend never gets a partial total, and the next interval sends the full one. The reader does not throw when an export fails. It logs through the OpenTelemetry `diag` logger, so set one up or check the exporter result if you need to know. `examples/otlp-push.cjs` shows both: it runs two workers against a local receiver, or against your endpoint when those variables are set, and exits non-zero if the export fails.
 
+## Check your request graph
+
+Use a quiet test or staging app. Pick a GET route and a counter that adds one per request, including errors, but excludes `/metrics`. Copy the counter name from that endpoint, with or without `_total`:
+
+```sh
+npx @adityareddy-dev/otel-cluster-metrics check \
+  --target http://127.0.0.1:3000/ \
+  --metrics http://127.0.0.1:9464/metrics \
+  --counter requests_total --duration 3 --rate 50 --scrape 0.3
+```
+
+Output from a real four-worker run of `test/check-app.cjs` in merged mode included:
+
+```text
+Sent 149 requests. Received 149 complete responses (0 HTTP 4xx/5xx). Failed 0 requests.
+Sampled counter increase: 149 from requests_total (11 scrapes, 0 counter drops).
+Counter / received responses: 1.00x what the app really answered.
+```
+
+The stock exporter returned 38 increments for 149 responses in the same fixture, or 0.26x.
+
+`Sent` includes every attempt. A response counts only after its whole body arrives, with HTTP errors listed separately. Timeouts and broken connections count as failed requests and leave the ratio unknown. Redirects count without being followed.
+
+The check reads a baseline, then adds the changes in each counter series. A drop adds the new value as a reset. It uses fresh connections, so workers sharing a metrics port can produce an overcount or undercount. A dashboard with different scrapes or PromQL may differ.
+
+Defaults are 60 seconds, 20 requests a second and 5 seconds between reads. Allow one more interval after the last response. `--timeout` sets each request's deadline in seconds (default 5).
+
+Exit codes: 0 for a match within 2% with no request errors, 1 for a mismatch or unknown ratio, 2 for bad input or an unreadable counter.
+
 ## Merge behavior
 
 | Emitted data | Behavior |
