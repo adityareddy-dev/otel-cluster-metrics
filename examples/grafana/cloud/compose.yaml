@@ -5,7 +5,6 @@
 name: grot-cluster-recovery
 
 x-app: &app
-  build: { context: .., dockerfile: cloud/Dockerfile }
   image: otel-cluster-metrics-demo
   restart: unless-stopped
   init: true
@@ -17,6 +16,8 @@ x-app: &app
 services:
   shop-api:
     <<: *app
+    # Built once here. The other two services run the same image.
+    build: { context: .., dockerfile: cloud/Dockerfile }
     environment:
       MODE: merged
       STATE_FILE: /state/cluster-metrics.json
