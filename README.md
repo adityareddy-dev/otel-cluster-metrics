@@ -2,18 +2,18 @@
 
 Collect cumulative OpenTelemetry metrics from Node `cluster` workers through one Prometheus endpoint in the primary process.
 
-This is an independent experimental package. It is not an official OpenTelemetry component. Version 0.1.0 supports one host and one explicitly configured service resource. It uses the experimental `metricProducers` hook and pins the SDK versions that were tested.
+This independent experimental package supports one host and one explicitly configured service resource. It is not an official OpenTelemetry component. Integration uses the experimental `metricProducers` hook with the OpenTelemetry version ranges below.
 
 ```sh
 npm install @adityareddy-dev/otel-cluster-metrics \
-  @opentelemetry/api@1.10.0 @opentelemetry/sdk-metrics@3.0.0 \
-  @opentelemetry/exporter-prometheus@0.300.0 \
-  @opentelemetry/resources@3.0.0 @opentelemetry/core@3.0.0
+  '@opentelemetry/api@>=1.10.0 <1.11.0' '@opentelemetry/sdk-metrics@^3.0.0' \
+  '@opentelemetry/exporter-prometheus@>=0.300.0 <0.302.0' \
+  '@opentelemetry/resources@^3.0.0' '@opentelemetry/core@^3.0.0'
 ```
 
 TypeScript applications also need `@types/node` in their development dependencies.
 
-Node 22.15.0 or newer is required. SDK metrics 3.0.0 and Prometheus exporter 0.300.0 both require API 1.10.x. This package pins API 1.10.0, resources/core 3.0.0, SDK metrics 3.0.0 and Prometheus exporter 0.300.0 as exact peers because the producer hook is experimental.
+Node 22.15.0 or newer is required. Supported peers are API 1.10.x, SDK metrics/resources/core 3.x and Prometheus exporter 0.300.x or 0.301.x. CI tests Node 22 and 24 with both the lowest versions (API 1.10.0, SDK metrics/resources/core 3.0.0 and Prometheus exporter 0.300.0) and the latest versions in these ranges.
 
 ## Worker
 
