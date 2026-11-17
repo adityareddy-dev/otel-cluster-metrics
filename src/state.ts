@@ -1,7 +1,7 @@
 import type { HrTime } from '@opentelemetry/api';
 import type { ResourceMetrics } from '@opentelemetry/sdk-metrics';
 import { assert } from './protocol.js';
-import { merge, reconcile, retire, type GaugeReducer, type Row, type WorkerState } from './merge.js';
+import { merge, reconcile, retire, retained, rowsOf, type GaugeReducer, type Row, type WorkerState } from './merge.js';
 
 function entries(states: Map<string,WorkerState>, retired: Map<string,Row>): number {
   let n = retired.size; for (const w of states.values()) n += w.rows.size; return n;
@@ -45,6 +45,19 @@ export class ClusterState {
     const result = merge(resource,states,retired,reducers,start,end,this.maxSeries);
     this.states = states; this.retired = retired;
     return result;
+  }
+  /** Fold live snapshots into a copy, since workers restart with the primary. */
+  checkpoint(resource: ResourceMetrics['resource'], start: HrTime, end: HrTime): ResourceMetrics {
+    const retired = new Map(this.retired);
+    for (const state of this.states.values()) for (const row of state.rows.values()) retire(retired,row);
+    return merge(resource,new Map(),retired,{},start,end,this.maxSeries);
+  }
+  /** A checkpoint is already folded. No old worker identities survive a primary restart. */
+  restore(metrics: ResourceMetrics): void {
+    const retired = rowsOf(metrics,'');
+    assert([...retired.values()].every(retained), 'State file contains non-retained metrics');
+    assert(retired.size <= this.maxSeries, 'State file exceeds retained series limit');
+    this.retired = retired;
   }
   get size(): {workers:number;series:number;retiredSeries:number} {
     return {workers:this.states.size,series:entries(this.states,this.retired),retiredSeries:this.retired.size};
