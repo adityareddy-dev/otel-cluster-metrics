@@ -71,7 +71,7 @@
     {
       "type": "stat",
       "title": "Usual setup vs what visitors got",
-      "description": "The usual setup's count divided by the answers the visitors actually got back from that shop, over the last hour. 1\u00d7 would mean it counts right.",
+      "description": "The usual setup's count divided by the answers the visitors actually got back from that shop, over the last hour. 1× would mean it counts right.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -91,7 +91,7 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "suffix:\u00d7",
+          "unit": "suffix:×",
           "color": {
             "mode": "fixed",
             "fixedColor": "#d95926"
@@ -343,7 +343,7 @@
     {
       "type": "stat",
       "title": "My package vs what visitors got",
-      "description": "My package's count divided by the answers the visitors got back, over the last hour. If a copy is killed without warning, up to about 10 seconds of counts can be lost, so it can sit a little under 1\u00d7.",
+      "description": "My package's count divided by the answers the visitors got back, over the last hour. If a copy is killed without warning, up to about 10 seconds of counts can be lost, so it can sit a little under 1×.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -363,7 +363,7 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "suffix:\u00d7",
+          "unit": "suffix:×",
           "color": {
             "mode": "fixed",
             "fixedColor": "blue"
@@ -470,8 +470,8 @@
     },
     {
       "type": "stat",
-      "title": "Fake count resets, last hour",
-      "description": "How often a count went down, which Prometheus reads as a restart. On my package the count only goes down if the main program itself restarts.",
+      "title": "Count resets, last hour",
+      "description": "How often a count went down, which Prometheus reads as a restart. Mine saves its totals to a file, so its count does not go down when the main program restarts.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -577,7 +577,7 @@
     {
       "type": "timeseries",
       "title": "Copies the graph can see (the shop runs four)",
-      "description": "Both shops run four copies. Mine reports all of them every time. The usual setup only shows the copy that happened to answer.",
+      "description": "Both shops run four copies. Each time mine reports, the report has all of them. Each scrape of the usual setup only shows the copy that happened to answer.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -588,7 +588,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "count(worker_heap_used{job=\"shop-api\"})",
+          "expr": "count(timestamp(worker_heap_used{job=\"shop-api\"}) == scalar(max(timestamp(worker_heap_used{job=\"shop-api\"}))))",
           "legendFormat": "My package",
           "refId": "A",
           "range": true
@@ -598,7 +598,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "count(worker_heap_used{job=\"shop-api-stock\"})",
+          "expr": "count(timestamp(worker_heap_used{job=\"shop-api-stock\"}) == scalar(max(timestamp(worker_heap_used{job=\"shop-api-stock\"}))))",
           "legendFormat": "Usual setup",
           "refId": "B",
           "range": true
@@ -682,6 +682,27 @@
       }
     },
     {
+      "id": 26,
+      "type": "text",
+      "title": "Try it on your app",
+      "gridPos": {
+        "h": 5,
+        "w": 24,
+        "x": 0,
+        "y": 21
+      },
+      "options": {
+        "mode": "markdown",
+        "code": {
+          "language": "plaintext",
+          "showLineNumbers": false,
+          "showMiniMap": false
+        },
+        "content": "The green line's check is one command you can run on your own app. It sends requests, reads your app's counter and tells you how far the graph is off:\n\n`npx @adityareddy-dev/otel-cluster-metrics check --target http://127.0.0.1:3000/ --metrics http://127.0.0.1:9464/metrics --counter requests_total`\n\nOn the test app in the repo, the usual setup counted **0.26×** what the app really answered. My package counted **1.00×**. [How to use it](https://github.com/adityareddy-dev/otel-cluster-metrics#check-your-request-graph)"
+      },
+      "transparent": false
+    },
+    {
       "type": "row",
       "title": "The raw counter, and what each setup has counted",
       "collapsed": true,
@@ -689,7 +710,7 @@
         {
           "type": "timeseries",
           "title": "Requests counter as Prometheus sees it",
-          "description": "The raw running count. The merged endpoint retains worker totals. The stock endpoint shows one worker per scrape, so switching workers can make the count jump or drop. Violet markers infer new worker IDs from successive samples.",
+          "description": "The raw running count, next to the responses the visitors got back (green). Restart both main programs with `docker compose restart shop-api shop-api-stock`. Mine saves its totals to a file, so blue carries on next to green. The usual setup shows one copy's count per scrape, so it jumps and drops, and starts again from zero after a restart. Violet markers infer new copies from successive samples.",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -725,6 +746,17 @@
               "refId": "R",
               "range": true,
               "interval": "15s"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "refId": "C",
+              "legendFormat": "What visitors got back",
+              "expr": "sum(load_responses_total{target=\"shop-api\"})",
+              "range": true,
+              "instant": false
             }
           ],
           "fieldConfig": {
@@ -829,6 +861,35 @@
                     }
                   }
                 ]
+              },
+              {
+                "matcher": {
+                  "id": "byFrameRefID",
+                  "options": "C"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "green"
+                    }
+                  },
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        6,
+                        4
+                      ]
+                    }
+                  },
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 2
+                  }
+                ]
               }
             ]
           },
@@ -849,7 +910,7 @@
           "id": 8,
           "gridPos": {
             "x": 0,
-            "y": 22,
+            "y": 27,
             "w": 16,
             "h": 10
           }
@@ -857,7 +918,7 @@
         {
           "type": "stat",
           "title": "Requests counted, whole shop",
-          "description": "Latest retained worker snapshots since the primary started. A graceful final preserves the leaving worker totals. A hard kill can lose increments recorded after its last snapshot.",
+          "description": "Every request my package has counted since this copy of the demo started. It carries on across a main program restart because the totals are saved to a file. A hard kill can lose increments recorded after the last snapshot.",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -913,7 +974,7 @@
           "id": 9,
           "gridPos": {
             "x": 16,
-            "y": 22,
+            "y": 27,
             "w": 8,
             "h": 5
           }
@@ -977,7 +1038,7 @@
           "id": 10,
           "gridPos": {
             "x": 16,
-            "y": 27,
+            "y": 32,
             "w": 8,
             "h": 5
           }
@@ -1084,7 +1145,7 @@
           "id": 11,
           "gridPos": {
             "x": 0,
-            "y": 32,
+            "y": 37,
             "w": 24,
             "h": 8
           }
@@ -1093,7 +1154,7 @@
       "id": 7,
       "gridPos": {
         "x": 0,
-        "y": 21,
+        "y": 26,
         "w": 24,
         "h": 1
       }
@@ -1210,7 +1271,7 @@
           "id": 13,
           "gridPos": {
             "x": 0,
-            "y": 41,
+            "y": 46,
             "w": 8,
             "h": 8
           }
@@ -1317,7 +1378,7 @@
           "id": 14,
           "gridPos": {
             "x": 8,
-            "y": 41,
+            "y": 46,
             "w": 8,
             "h": 8
           }
@@ -1399,7 +1460,7 @@
           "id": 15,
           "gridPos": {
             "x": 16,
-            "y": 41,
+            "y": 46,
             "w": 8,
             "h": 8
           }
@@ -1506,7 +1567,7 @@
           "id": 16,
           "gridPos": {
             "x": 0,
-            "y": 49,
+            "y": 54,
             "w": 12,
             "h": 8
           }
@@ -1525,7 +1586,7 @@
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "label_replace(max by (cluster_worker_id) (worker_heap_used{job=\"shop-api\"}), \"worker\", \"$1\", \"cluster_worker_id\", \"([0-9]+):.*\")",
+              "expr": "label_replace(max by (cluster_worker_id) (worker_heap_used{job=\"shop-api\"} and on (cluster_worker_id) (timestamp(worker_heap_used{job=\"shop-api\"}) == scalar(max(timestamp(worker_heap_used{job=\"shop-api\"}))))), \"worker\", \"$1\", \"cluster_worker_id\", \"([0-9]+):.*\")",
               "legendFormat": "worker {{worker}}",
               "refId": "A",
               "range": true
@@ -1569,7 +1630,7 @@
           "id": 17,
           "gridPos": {
             "x": 12,
-            "y": 49,
+            "y": 54,
             "w": 12,
             "h": 8
           }
@@ -1588,7 +1649,7 @@
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "count(max by (cluster_worker_id) (worker_heap_used{job=\"shop-api\"}))",
+              "expr": "count(timestamp(worker_heap_used{job=\"shop-api\"}) == scalar(max(timestamp(worker_heap_used{job=\"shop-api\"}))))",
               "legendFormat": "__auto",
               "refId": "A",
               "range": false,
@@ -1633,7 +1694,7 @@
           "id": 18,
           "gridPos": {
             "x": 0,
-            "y": 57,
+            "y": 62,
             "w": 6,
             "h": 4
           }
@@ -1697,15 +1758,15 @@
           "id": 19,
           "gridPos": {
             "x": 6,
-            "y": 57,
+            "y": 62,
             "w": 6,
             "h": 4
           }
         },
         {
           "type": "stat",
-          "title": "Primary scrape OK",
-          "description": "The handler returns 503 for an incomplete round instead of partial data.",
+          "title": "Seconds since my package's last count",
+          "description": "Time since the newest sample of the merged count. An incomplete round gives no count at all, a 503 for a scrape or nothing sent for an OTLP push, so a gap here is a missed round, never a partial count.",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -1716,16 +1777,16 @@
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "min(up{job=\"shop-api\"})",
-              "legendFormat": "__auto",
               "refId": "A",
+              "legendFormat": "__auto",
+              "instant": true,
               "range": false,
-              "instant": true
+              "expr": "time() - max(timestamp(shop_requests_total{job=\"shop-api\"}))"
             }
           ],
           "fieldConfig": {
             "defaults": {
-              "unit": "bool_yes_no",
+              "unit": "s",
               "color": {
                 "mode": "thresholds"
               },
@@ -1733,16 +1794,17 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "#e66767",
+                    "color": "green",
                     "value": null
                   },
                   {
-                    "color": "#199e70",
-                    "value": 1
+                    "color": "red",
+                    "value": 60
                   }
                 ]
               },
-              "decimals": 0
+              "decimals": 0,
+              "mappings": []
             },
             "overrides": []
           },
@@ -1764,7 +1826,7 @@
           "id": 20,
           "gridPos": {
             "x": 12,
-            "y": 57,
+            "y": 62,
             "w": 6,
             "h": 4
           }
@@ -1828,7 +1890,7 @@
           "id": 21,
           "gridPos": {
             "x": 18,
-            "y": 57,
+            "y": 62,
             "w": 6,
             "h": 4
           }
@@ -1923,7 +1985,7 @@
           "id": 24,
           "gridPos": {
             "x": 0,
-            "y": 61,
+            "y": 66,
             "w": 12,
             "h": 5
           }
@@ -1932,7 +1994,7 @@
       "id": 12,
       "gridPos": {
         "x": 0,
-        "y": 40,
+        "y": 45,
         "w": 24,
         "h": 1
       }
@@ -1947,7 +2009,7 @@
           "title": "",
           "options": {
             "mode": "markdown",
-            "content": "**shop-api** uses [otel-cluster-metrics](https://github.com/adityareddy-dev/otel-cluster-metrics). **shop-api-stock** runs a stock OpenTelemetry Prometheus exporter in each worker on one shared port. The independent **load** process counts attempts, received responses, transport failures and in-flight requests for each target at `/metrics`.\n\nPrometheus scrapes all three every 15 seconds. The default demo replaces the oldest worker every four minutes, choosing SIGKILL with 20% probability and SIGTERM otherwise. Violet bars show new worker IDs, not exit signals. The primary logs each actual exit signal. A hard kill can lose the last worker snapshot window, normally up to 10 seconds. A primary restart loses the retained aggregate.\n\nRun [examples/grafana](https://github.com/adityareddy-dev/otel-cluster-metrics/tree/main/examples/grafana) with `docker compose up`, then open Grafana on port 3000. Wait at least two scrapes for rates. The shape changes as workers age and restart. No fixed inflation factor is promised. For known-input correctness, run `npm test` and `node examples/single-task-workers.cjs` from the repository root."
+            "content": "**shop-api** uses [otel-cluster-metrics](https://github.com/adityareddy-dev/otel-cluster-metrics). **shop-api-stock** runs a stock OpenTelemetry Prometheus exporter in each worker on one shared port. The independent **load** process counts attempts, received responses, transport failures and in-flight requests for each target at `/metrics`.\n\nPrometheus scrapes all three every 15 seconds. The default demo replaces the oldest worker every four minutes, choosing SIGKILL with 20% probability and SIGTERM otherwise. Violet bars show new worker IDs, not exit signals. The primary logs each actual exit signal. A hard kill can lose the last worker snapshot window, normally up to 10 seconds. shop-api keeps its totals in a file (`STATE_FILE`), so they survive `docker compose restart shop-api shop-api-stock`. shop-api-stock starts again from zero.\n\nRun [examples/grafana](https://github.com/adityareddy-dev/otel-cluster-metrics/tree/main/examples/grafana) with `docker compose up`, then open Grafana on port 3000. Wait at least two scrapes for rates. The shape changes as workers age and restart. No fixed inflation factor is promised. For known-input correctness, run `npm test` and `node examples/single-task-workers.cjs` from the repository root."
           },
           "datasource": {
             "type": "prometheus",
@@ -1970,7 +2032,7 @@
           "id": 23,
           "gridPos": {
             "x": 0,
-            "y": 67,
+            "y": 72,
             "w": 24,
             "h": 6
           }
@@ -1979,7 +2041,7 @@
       "id": 22,
       "gridPos": {
         "x": 0,
-        "y": 66,
+        "y": 71,
         "w": 24,
         "h": 1
       }
