@@ -9,8 +9,8 @@ services:
     image: node:24-slim
     working_dir: /app
     command: ["node", "app.cjs"]
-    environment: { MODE: merged }
-    volumes: [".:/app:ro"]
+    environment: { MODE: merged, STATE_FILE: /state/cluster-metrics.json }
+    volumes: [".:/app:ro", "shop-api-state:/state"]
     depends_on: { install: { condition: service_completed_successfully } }
   shop-api-stock:
     image: node:24-slim
@@ -39,3 +39,5 @@ services:
       - ./dashboards.yaml:/etc/grafana/provisioning/dashboards/db.yaml:ro
       - ./dashboard.json:/var/lib/grafana/dashboards/dashboard.json:ro
     ports: ["3000:3000"]
+volumes:
+  shop-api-state:

@@ -1,13 +1,17 @@
 // A Node cluster web app with four workers, run two ways.
 // MODE=merged: workers report to the primary and @adityareddy-dev/otel-cluster-metrics
-//   serves one /metrics for the whole cluster.
+//   turns them into one count for the whole cluster. The primary serves it at
+//   /metrics, or pushes it over OTLP when OTEL_EXPORTER_OTLP_METRICS_ENDPOINT or
+//   OTEL_EXPORTER_OTLP_ENDPOINT is set. STATE_FILE keeps the totals in a file,
+//   so they carry on when the primary restarts.
 // MODE=stock: each worker runs the stock Prometheus exporter on the same port,
 //   so the cluster hands every scrape to whichever worker accepts it.
 // Every few minutes the primary retires a worker and forks a new one, the way
 // a deploy or a memory limit would.
 const cluster = require('node:cluster');
 const { createServer } = require('node:http');
-const { MeterProvider } = require('@opentelemetry/sdk-metrics');
+const { diag, DiagConsoleLogger, DiagLogLevel } = require('@opentelemetry/api');
+const { MeterProvider, PeriodicExportingMetricReader } = require('@opentelemetry/sdk-metrics');
 const { resourceFromAttributes } = require('@opentelemetry/resources');
 const { PrometheusExporter } = require('@opentelemetry/exporter-prometheus');
 const { WorkerMetricReader, ClusterMetricProducer, createPrometheusHandler } = require('@adityareddy-dev/otel-cluster-metrics');
@@ -17,6 +21,10 @@ const WORKERS = Number(process.env.WORKERS ?? 4);
 const APP_PORT = Number(process.env.APP_PORT ?? 8080);
 const METRICS_PORT = Number(process.env.METRICS_PORT ?? 9464);
 const RECYCLE_MS = Number(process.env.RECYCLE_MS ?? 240000);
+const STATE_FILE = process.env.STATE_FILE || undefined;
+const PUSH = MODE === 'merged'
+  && Boolean(process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT || process.env.OTEL_EXPORTER_OTLP_ENDPOINT);
+const EXPORT_MS = Number(process.env.EXPORT_MS ?? 15000);
 const resource = resourceFromAttributes({
   'service.name': MODE === 'merged' ? 'shop-api' : 'shop-api-stock',
   'service.namespace': 'golden-grot-demo',
@@ -24,21 +32,45 @@ const resource = resourceFromAttributes({
 
 if (cluster.isPrimary) {
   let server, provider, producer;
+  let stopping = false;
   if (MODE === 'merged') {
-    producer = new ClusterMetricProducer({ resource, gaugeReducers: { 'queue.depth': 'sum' } });
-    const exporter = new PrometheusExporter({ preventServerStart: true, metricProducers: [producer] });
-    provider = new MeterProvider({ resource, readers: [exporter], sdkMetricsEnabled: false });
-    const handler = createPrometheusHandler(exporter);
-    server = createServer((req, res) => {
-      if (req.url === '/metrics') void handler(req, res);
-      else { res.writeHead(404); res.end(); }
+    producer = new ClusterMetricProducer({
+      resource,
+      gaugeReducers: { 'queue.depth': 'sum' },
+      stateFile: STATE_FILE,
+      onDiagnostic: (message) => console.warn(message),
     });
   }
+  // Start exporting only once every worker has installed its reader.
+  const startExport = () => {
+    if (!producer) return;
+    if (PUSH) {
+      // A failed export is logged, not thrown, so send diag warnings to the log.
+      diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.WARN);
+      const { OTLPMetricExporter } = require('@opentelemetry/exporter-metrics-otlp-http');
+      const reader = new PeriodicExportingMetricReader({
+        exporter: new OTLPMetricExporter(),
+        exportIntervalMillis: EXPORT_MS,
+        exportTimeoutMillis: Math.min(10000, EXPORT_MS),
+        metricProducers: [producer],
+      });
+      provider = new MeterProvider({ resource, readers: [reader], sdkMetricsEnabled: false });
+      console.log(`pushing the merged totals over OTLP every ${EXPORT_MS} ms`);
+    } else {
+      const exporter = new PrometheusExporter({ preventServerStart: true, metricProducers: [producer] });
+      provider = new MeterProvider({ resource, readers: [exporter], sdkMetricsEnabled: false });
+      const handler = createPrometheusHandler(exporter);
+      server = createServer((req, res) => {
+        if (req.url === '/metrics') void handler(req, res);
+        else { res.writeHead(404); res.end(); }
+      }).listen(METRICS_PORT);
+    }
+  };
   let ready = 0;
   const fork = () => {
     const w = cluster.fork();
     w.on('message', (m) => {
-      if (m && m.ready && ++ready === WORKERS && server) server.listen(METRICS_PORT);
+      if (m && m.ready && ++ready === WORKERS) startExport();
     });
     return w;
   };
@@ -54,13 +86,20 @@ if (cluster.isPrimary) {
     const w = cluster.workers[ids[0]];
     w.process.kill(Math.random() < 0.2 ? 'SIGKILL' : 'SIGTERM');
   }, RECYCLE_MS).unref();
-  let stopping = false;
+  // Stop the workers first so their final totals reach the producer, then
+  // shut down the provider and the producer, which saves STATE_FILE.
   process.on('SIGTERM', async () => {
+    if (stopping) return;
     stopping = true;
-    for (const w of Object.values(cluster.workers)) w.process.kill('SIGTERM');
+    const left = Object.values(cluster.workers).map((w) => new Promise((resolve) => {
+      w.once('exit', resolve);
+      w.process.kill('SIGTERM');
+    }));
+    await Promise.race([Promise.all(left), new Promise((resolve) => setTimeout(resolve, 8000).unref())]);
     if (server) server.close();
     if (provider) await provider.shutdown();
     if (producer) await producer.shutdown();
+    console.log('primary stopped');
     process.exit(0);
   });
 } else {

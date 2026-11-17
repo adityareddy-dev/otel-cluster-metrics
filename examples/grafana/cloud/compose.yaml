@@ -1,0 +1,45 @@
+# The live copy behind the Grafana Cloud dashboard.
+# Copy ingest.env.example to ingest.env, fill it in, then: docker compose up -d --build
+# Blue pushes over OTLP and keeps its totals in a volume. The Collector scrapes
+# orange and the traffic program, then sends everything to Grafana Cloud.
+name: grot-cluster-recovery
+
+x-app: &app
+  build: { context: .., dockerfile: cloud/Dockerfile }
+  image: otel-cluster-metrics-demo
+  restart: unless-stopped
+  init: true
+  stop_grace_period: 20s
+  logging:
+    driver: json-file
+    options: { max-size: 10m, max-file: '3' }
+
+services:
+  shop-api:
+    <<: *app
+    environment:
+      MODE: merged
+      STATE_FILE: /state/cluster-metrics.json
+      OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://collector:4318/v1/metrics
+    volumes: [shop-api-state:/state]
+    depends_on: [collector]
+  shop-api-stock:
+    <<: *app
+    environment: { MODE: stock }
+  load:
+    <<: *app
+    command: [node, load.cjs]
+    environment: { TARGETS: 'http://shop-api:8080,http://shop-api-stock:8080' }
+    depends_on: [shop-api, shop-api-stock]
+  collector:
+    image: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib@sha256:799dc6cf12c96192af37b5bdba804da8c10b3bc563b43cb90c3f3c58d9572ad6
+    command: [--config=/etc/otelcol/config.yaml]
+    env_file: [./ingest.env]
+    volumes: ['./collector.yaml:/etc/otelcol/config.yaml:ro']
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: '3' }
+
+volumes:
+  shop-api-state:

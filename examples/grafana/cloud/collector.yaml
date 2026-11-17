@@ -1,0 +1,53 @@
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  # Orange and the traffic program are scraped, the way the usual setup works.
+  prometheus:
+    config:
+      global:
+        scrape_interval: 15s
+      scrape_configs:
+        - job_name: shop-api-stock
+          static_configs:
+            - targets: ['shop-api-stock:9464']
+        - job_name: load
+          static_configs:
+            - targets: ['load:9100']
+  # Blue pushes its one merged count here over OTLP. Nothing scrapes it.
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  resource/job:
+    attributes:
+      - key: service.namespace
+        action: delete
+  # OTLP metrics that carry a unit get a unit suffix in Prometheus names
+  # (worker_heap_used_bytes). Dropping the unit keeps blue's names the same as
+  # the scraped ones, so both shops use the same queries.
+  transform/no-units:
+    metric_statements:
+      - set(metric.unit, "")
+  batch: {}
+
+exporters:
+  otlp_http:
+    endpoint: ${env:OTLP_ENDPOINT}
+    headers:
+      Authorization: ${env:OTLP_AUTH}
+
+service:
+  extensions: [health_check]
+  pipelines:
+    metrics/scraped:
+      receivers: [prometheus]
+      processors: [resource/job, batch]
+      exporters: [otlp_http]
+    metrics/pushed:
+      receivers: [otlp]
+      processors: [resource/job, transform/no-units, batch]
+      exporters: [otlp_http]

@@ -1,3 +1,4 @@
 node_modules/
 dist/
 *.tgz
+examples/grafana/cloud/ingest.env
