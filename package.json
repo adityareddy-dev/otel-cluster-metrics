@@ -1,6 +1,6 @@
 {
   "name": "@adityareddy-dev/otel-cluster-metrics",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Cumulative OpenTelemetry metrics from Node cluster workers through one Prometheus endpoint",
   "license": "Apache-2.0",
   "author": "Aditya Reddy",
