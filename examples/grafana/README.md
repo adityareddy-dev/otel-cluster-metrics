@@ -28,6 +28,8 @@ The live dashboard is at https://brightparlor286.grafana.net/public-dashboards/7
 
 To run it against your own stack, copy `cloud/ingest.env.example` to `cloud/ingest.env`, fill in your OTLP endpoint and header, then `docker compose -f cloud/compose.yaml up -d --build`.
 
+The dashboard is also on grafana.com as [26076](https://grafana.com/grafana/dashboards/26076), so you can import it with Dashboards > New > Import and that ID. [docs/dashboard.mp4](../../docs/dashboard.mp4) is a 30-second video of the live copy, with a restart of both main programs in it.
+
 ## The panels
 
 
