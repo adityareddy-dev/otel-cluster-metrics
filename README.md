@@ -85,6 +85,69 @@ const provider = new MeterProvider({ resource, readers: [reader], sdkMetricsEnab
 
 The exporter reads `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` and `OTEL_EXPORTER_OTLP_HEADERS`. A round that misses a worker exports nothing for that interval, so the backend never gets a partial total, and the next interval sends the full one. The reader does not throw when an export fails. It logs through the OpenTelemetry `diag` logger, so set one up or check the exporter result if you need to know. `examples/otlp-push.cjs` shows both: it runs two workers against a local receiver, or against your endpoint when those variables are set, and exits non-zero if the export fails.
 
+## PM2 cluster mode
+
+Use one separate collector process for a PM2 app. PM2 owns the Node primary, so app instances select a local socket transport. The collector uses PM2 to check app membership and merges snapshots with the same cumulative state and resource checks as the Node primary.
+
+PM2 is an optional peer. The tested version is 7.1.2. It is loaded only by `Pm2MetricProducer.connect()`, and Node `cluster` users do not need to install it.
+
+```sh
+npm install pm2@7.1.2
+mkdir -m 700 .metrics
+export METRICS_SOCKET="$PWD/.metrics/collector.sock"
+# Set PM2_HOME here too if your app uses a private daemon.
+node examples/pm2-collector.cjs
+```
+
+Start the collector first. In another terminal with the same `METRICS_SOCKET` and `PM2_HOME`, start the app:
+
+```sh
+npx pm2 start examples/pm2.ecosystem.config.cjs
+curl http://localhost:3000/
+curl http://localhost:9464/metrics
+npx pm2 reload api
+```
+
+In each app instance, register the reader before recording metrics and await `forceFlush()` before opening the app port. The flush confirms that the collector received the instance's first snapshot:
+
+```js
+const reader = new WorkerMetricReader({
+  transport: 'pm2',
+  pm2SocketPath: process.env.METRICS_SOCKET,
+});
+const provider = new MeterProvider({ resource, readers: [reader], sdkMetricsEnabled: false });
+// Install instruments, then await provider.forceFlush(), start the server and send 'ready'.
+// On SIGINT: stop accepting work, drain requests, await provider.shutdown(), then exit.
+```
+
+The collector uses the same resource and the exact PM2 app name and namespace:
+
+```js
+const { Pm2MetricProducer } = require('@adityareddy-dev/otel-cluster-metrics');
+const producer = await Pm2MetricProducer.connect({
+  resource,
+  appName: 'api',
+  namespace: 'default',
+  socketPath: process.env.METRICS_SOCKET,
+  pm2Home: process.env.PM2_HOME,
+});
+```
+
+Attach this producer to the Prometheus exporter and `createPrometheusHandler` shown above, or to the OTLP `PeriodicExportingMetricReader`. All instances share one socket and the collector exposes one merged output. Keep the collector outside the app's reload group. `examples/pm2-app.cjs`, `examples/pm2-collector.cjs` and `examples/pm2.ecosystem.config.cjs` contain the complete setup.
+
+PM2 guarantees and limits:
+
+- Counters and explicit histograms retain exited instances' cumulative totals. Gauges and non-monotonic sums describe live instances. Repeated scrapes and replacement instances do not add a cumulative snapshot twice.
+- Start every instance with the reader and await its initial flush before accepting traffic. A listed instance without a reader fails collection. PM2 hides old instances from its normal list during reload, so their socket connections keep them visible until they finish. Collections fail while membership changes, including during reload, rather than export a partial total. The next stable round includes retained old totals and new instances.
+- Pushes and finals wait for a receipt acknowledgement, with a default `ackTimeoutMillis` of 5000. Acknowledged messages are in collector memory, including messages queued behind a collection. Reconciliation or limit failures still use `onDiagnostic`, as with Node `cluster`. Configure matching resource, byte and series limits on both sides.
+- PM2 sends SIGINT on stop and reload. Drain work and await `provider.shutdown()` in that handler. Set `kill_timeout` above the drain time plus acknowledgement deadline. A successful final with compatible metrics retains all recorded totals. Hard kills and crashes lose increments since the last received push, flush or reply. The push interval bounds the usual loss window only while the collector is reachable and collections succeed.
+- Start one collector per app and namespace, with a socket in a private local directory. Existing socket paths are never removed automatically. Graceful collector shutdown removes its socket. After a collector crash, check it has stopped before removing the stale socket path.
+- Collector restart resets its totals. Restart the app instances with it, since their pipes do not reconnect. Losing the PM2 daemon's connection permanently fails that producer. Restart the collector and instances together to begin a new aggregate. This integration does not recover totals across collector or daemon restarts.
+
+The producer accepts the common resource, reducer, timeout and limit options from `ClusterMetricProducer`, plus required `appName` and `socketPath`, optional `namespace` (default `default`) and `pm2Home`. Workers add `transport: 'pm2'`, required `pm2SocketPath`, and optional `ackTimeoutMillis`. Allow room in `maxWorkers` for the overlapping old and new instances during reload. Only local Node PM2 cluster mode is supported. PM2 fork mode, remote daemons and automatic collector failover are not supported. Linux with PM2 7.1.2 is tested. Other platforms are not checked.
+
+The dedicated socket is needed because PM2's message API refuses sends to stopping instances, which prevents final acknowledgements over that API. Sources: [PM2 cluster mode](https://pm2.keymetrics.io/docs/usage/cluster-mode/), [PM2 API](https://pm2.keymetrics.io/docs/usage/pm2-api/), [pinned send implementation](https://github.com/Unitech/pm2/blob/7a7fb4e22e9a26ec79c870ce8daafd2f78b648d1/lib/God/ActionMethods.js#L694-L721), [pinned reload implementation](https://github.com/Unitech/pm2/blob/7a7fb4e22e9a26ec79c870ce8daafd2f78b648d1/lib/God/Reload.js).
+
 ## Merge behavior
 
 | Emitted data | Behavior |
@@ -168,7 +231,7 @@ Defaults:
 
 Limits fail collection instead of evicting cumulative totals. Repeated worker exits do not retain a list of old epochs: there is one retained total per series however many workers have come and gone. A push or final that would breach a limit is discarded with a diagnostic and the committed state stays as it was. Changing attribute sets can still reach the series limit and require a primary restart or a larger explicit limit. Tune limits on both sides together. The SDK also applies its own reader cardinality limit. `producer.stateSize` exposes committed worker, series and retired-series counts. Call `producer.shutdown()` to cancel an in-flight round and release retained state.
 
-There are no delta conversion, exponential histograms, exemplars, multiple resources, worker threads or PM2-specific integration in v0. Exemplars are not transported. Delta replies and exponential histograms fail explicitly. Worker readers always select cumulative temporality.
+There are no delta conversion, exponential histograms, exemplars, multiple resources or worker threads in the Node `cluster` path. Exemplars are not transported. Delta replies and exponential histograms fail explicitly. Worker readers always select cumulative temporality.
 
 ## Run the demo and checks
 
