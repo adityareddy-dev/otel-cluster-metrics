@@ -126,7 +126,31 @@ Series identity includes scope name/version/schema, descriptor name/unit/value t
 
 Cumulative series disappearing from a live worker remain in that worker's last snapshot until they reappear or the worker exits. A reappearance with the same start time replaces the old value. A changed point start time retires the old cumulative total and starts a new epoch. Gauges and non-monotonic sums disappear immediately when absent. Retired counter and histogram epochs fold into one total per series. Retired gauges are never stored. Decreasing monotonic values without a changed start time fail the round.
 
-The aggregate has one start timestamp established when the producer is constructed and a fresh end timestamp for each successful round. A primary restart resets aggregate totals. A worker crash loses what it recorded after its last push, flush or reply, see Worker lifecycle and loss windows. Instruments in multiple workers must measure worker-local work. Reporting the same shared external total from every worker would double-count.
+The aggregate has one start timestamp established when the producer is constructed and a fresh end timestamp for each successful round. A primary restart resets aggregate totals unless `stateFile` is configured, as described below. A worker crash loses what it recorded after its last push, flush or reply, see Worker lifecycle and loss windows. Instruments in multiple workers must measure worker-local work. Reporting the same shared external total from every worker would double-count.
+
+## Keep totals across primary restarts
+
+Set `stateFile` to keep totals when the primary and its workers restart:
+
+```js
+const producer = new ClusterMetricProducer({
+  resource,
+  stateFile: './cluster-metrics.json',
+  onDiagnostic: message => console.warn(message),
+});
+```
+
+The path is resolved at construction. Create its parent directory first, make it writable, and use a local filesystem with one file per primary.
+
+Monotonic sums, explicit histograms and their aggregate start timestamp survive. The file includes live workers' last committed snapshots and exited workers' totals. New workers add to these totals. Gauges and non-monotonic sums start fresh. Restart the workers with the primary, otherwise their cumulative snapshots would be counted again.
+
+Writes are synchronous, after successful rounds, accepted pushes and finals, worker departures and `producer.shutdown()`. Each write flushes a temporary file with `fsync` and renames it over the old file. Failed rounds never save their replies. At shutdown, stop the workers through their providers first, then shut down the primary provider and producer.
+
+A missing file starts fresh. Corrupt or unreadable files, unsupported format versions and configuration mismatches throw at construction and report through `onDiagnostic`. The resource, including its schema URL, resource exclusions, gauge reducers, timeout and limits must match. Attribute, exclusion and reducer ordering does not matter. Restored totals count toward `maxSeries` alongside new workers. To start fresh, move the file aside or choose another path.
+
+An exclusive `.lock` file protects each write. If another producer changes the saved contents, this producer reports a diagnostic and stops saving for its remaining lifetime. A busy lock or write failure leaves the previous file intact and retries on the next save. Collection still works, so monitor `onDiagnostic`.
+
+A crash loses work since the last successful save and anything workers have not reported. A crash during a write can leave a lock and temporary file. After checking that no writer is running, remove those leftovers so saves can resume. The last complete state file can still be restored. Recovery after a filesystem or power failure is not guaranteed.
 
 ## Worker lifecycle and loss windows
 
@@ -145,7 +169,8 @@ What is still lost:
 | `provider.shutdown()` awaited before exit, including a SIGTERM handler that does so | Nothing |
 | SIGTERM with no handler, `process.exit()` without shutdown, `worker.disconnect()` from the primary | Increments since the last push, flush or reply, at most one push interval |
 | SIGKILL, OOM kill, an uncaught crash | The same window, at most one push interval |
-| A primary restart | Every total, since the primary holds the state |
+| A primary restart without `stateFile` | Every total, since the primary holds the state |
+| A primary restart with `stateFile` | Work since the last successful save and work workers have not reported |
 
 ## Per-worker counters
 
@@ -169,10 +194,11 @@ Defaults:
 | `maxMessageBytes` | 1048576 | Maximum bytes of a worker IPC envelope, configurable on both classes. |
 | `maxSeries` | 10000 | Primary retained entries across active worker snapshots and retired totals, also caps points/descriptors per worker reply. |
 | `maxWorkers` | 64 | Maximum current workers. |
+| `stateFile` | Off | Primary file for cumulative counters, explicit histograms and the aggregate start timestamp. |
 | `maxPoints` | 10000 | Worker reader point/descriptor limit. |
 | `pushIntervalMillis` | 10000 | Worker reader. Milliseconds between unrequested snapshots to the primary. 0 turns the push off. |
 
-Limits fail collection instead of evicting cumulative totals. Repeated worker exits do not retain a list of old epochs: there is one retained total per series however many workers have come and gone. A push or final that would breach a limit is discarded with a diagnostic and the committed state stays as it was. Changing attribute sets can still reach the series limit and require a primary restart or a larger explicit limit. Tune limits on both sides together. The SDK also applies its own reader cardinality limit. `producer.stateSize` exposes committed worker, series and retired-series counts. Call `producer.shutdown()` to cancel an in-flight round and release retained state.
+Limits fail collection instead of evicting cumulative totals. Repeated worker exits do not retain a list of old epochs: there is one retained total per series however many workers have come and gone. A push or final that would breach a limit is discarded with a diagnostic and the committed state stays as it was. Changing attribute sets can still reach the series limit and require a fresh state file, a primary restart without persistence, or a larger explicit limit with a fresh file. Tune limits on both sides together. The SDK also applies its own reader cardinality limit. `producer.stateSize` exposes committed worker, series and retired-series counts. Call `producer.shutdown()` to cancel an in-flight round and release retained state.
 
 There are no delta conversion, exponential histograms, exemplars, multiple resources, worker threads or PM2-specific integration in v0. Exemplars are not transported. Delta replies and exponential histograms fail explicitly. Worker readers always select cumulative temporality.
 
@@ -190,6 +216,6 @@ The demo starts two real workers using SDK instruments, scrapes through the expe
 
 `examples/grafana` runs a four-worker app with this package next to the same app on the stock exporter, with Prometheus and a Grafana dashboard that shows the difference. There's a live copy on Grafana Cloud linked from its README.
 
-The release tests also cover all gauge reducers, worker exit and restart, missing workers, duplicate and late replies, invalid resources, schema conflicts, incompatible buckets and descriptors, cumulative resets, disappearing attributes, non-finite number transport, bounded state across worker churn, and HTTP failure/recovery. The lifecycle tests cover a worker that records and exits between scrapes, `forceFlush` and `shutdown` finals, the push interval bound on a hard kill, `beforeExit` on an unreferenced channel, disconnect, pushes and finals during a round, hundreds of short-lived workers with bounded state and memory, randomized worker lifecycles over 200 seeds, and the single-task example.
+The release tests also cover all gauge reducers, worker exit and restart, missing workers, duplicate and late replies, invalid resources, schema conflicts, incompatible buckets and descriptors, cumulative resets, disappearing attributes, non-finite number transport, bounded state across worker churn, and HTTP failure/recovery. The persistence tests restart a real two-worker primary and check continuous counters, histogram buckets and start timestamps, hard crashes, final snapshots, incompatible files and options, write failures, competing writers and restored series limits. The lifecycle tests cover a worker that records and exits between scrapes, `forceFlush` and `shutdown` finals, the push interval bound on a hard kill, `beforeExit` on an unreferenced channel, disconnect, pushes and finals during a round, hundreds of short-lived workers with bounded state and memory, randomized worker lifecycles over 200 seeds, and the single-task example.
 
 Sources for the pinned integration: [MetricReader producer hook](https://github.com/open-telemetry/opentelemetry-js/blob/12a5817ad147c186a0e45a6637abd5abf423727a/packages/sdk-metrics/src/export/MetricReader.ts), [Prometheus exporter](https://github.com/open-telemetry/opentelemetry-js/blob/12a5817ad147c186a0e45a6637abd5abf423727a/experimental/packages/opentelemetry-exporter-prometheus/src/PrometheusExporter.ts), [metrics data model](https://github.com/open-telemetry/opentelemetry-specification/blob/5740e9af3c82a3c89ef0b2357548946fbf5a9f5e/specification/metrics/data-model.md).
