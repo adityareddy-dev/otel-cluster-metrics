@@ -10,13 +10,21 @@ import { CHANNEL, VERSION, DEFAULT_MAX_BYTES, assert, positive, parseEnvelope, i
 import { rowsOf, type GaugeReducer, type WorkerState } from './merge.js';
 import { ClusterState } from './state.js';
 import { StateFile } from './persistence.js';
+import { Pm2WorkerConnection } from './pm2-ipc.js';
 export type { GaugeReducer } from './merge.js';
+export { Pm2MetricProducer, type Pm2MetricProducerOptions } from './pm2.js';
 
 /** Milliseconds between unrequested worker snapshots. A crash then loses at most this much, not a scrape interval. */
 export const DEFAULT_PUSH_INTERVAL_MILLIS = 10000;
 const reason = (error: unknown): string => error instanceof Error ? error.message : String(error);
 
 export interface WorkerMetricReaderOptions {
+  /** Select explicitly for PM2 cluster instances. The default is Node cluster IPC. */
+  transport?: 'cluster' | 'pm2';
+  /** PM2 only: deadline for a pushed/final snapshot to be acknowledged by the collector. */
+  ackTimeoutMillis?: number;
+  /** PM2 only: local collector socket, shared by this app's instances. */
+  pm2SocketPath?: string;
   maxMessageBytes?: number;
   maxPoints?: number;
   /** Milliseconds between unrequested snapshots to the primary. 0 turns the push off. */
@@ -32,33 +40,51 @@ export class WorkerMetricReader extends MetricReader {
   private timer?: NodeJS.Timeout;
   private readonly maxBytes: number;
   private readonly maxPoints: number;
+  private readonly pm2: boolean;
+  private readonly connection?: Pm2WorkerConnection;
+  private readonly ackTimeout: number;
+  private readonly acknowledgements = new Map<number,(error?: string)=>void>();
   constructor(options: WorkerMetricReaderOptions = {}) {
     super({aggregationTemporalitySelector:()=>AggregationTemporality.CUMULATIVE});
     assert(cluster.isWorker && process.send, 'WorkerMetricReader requires a Node cluster worker');
+    assert(options.transport === undefined || ['cluster','pm2'].includes(options.transport), 'Invalid worker transport');
+    this.pm2 = options.transport === 'pm2';
+    this.ackTimeout = positive(options.ackTimeoutMillis ?? 5000,'ackTimeoutMillis');
     assert(!('aggregationTemporalitySelector' in options) && !('metricProducers' in options) && !('aggregationTemporality' in options), 'Worker reader configuration is cumulative only');
     this.maxBytes = positive(options.maxMessageBytes ?? DEFAULT_MAX_BYTES,'maxMessageBytes');
     this.maxPoints = positive(options.maxPoints ?? 10000,'maxPoints');
     const interval = options.pushIntervalMillis ?? DEFAULT_PUSH_INTERVAL_MILLIS;
     assert(Number.isSafeInteger(interval) && interval >= 0, 'Invalid pushIntervalMillis');
-    process.on('message',this.onMessage);
+    if(this.pm2) this.connection=new Pm2WorkerConnection(options.pm2SocketPath!,this.maxBytes,{
+      channel:CHANNEL,version:VERSION,kind:'hello',workerId:cluster.worker!.id,pid:process.pid,bootId:this.bootId,
+      appName:process.env.name,namespace:process.env.namespace ?? 'default'
+    },this.onMessage);
+    else process.on('message',this.onMessage);
     process.on('beforeExit',this.onBeforeExit);
     // The timer never keeps a finished worker alive.
-    if (interval > 0) this.timer = setInterval(()=>{ void this.snapshot('push'); },interval).unref();
+    if (interval > 0) this.timer = setInterval(()=>{ void this.snapshot('push').catch(()=>{}); },interval).unref();
   }
   private onMessage = (raw: unknown): void => {
     if (!isOurMessage(raw) || this.stopped) return;
     let request: any;
     try {
       request = parseEnvelope(raw,this.maxBytes);
+      if (this.pm2) {
+        if (request.targetPid !== process.pid) return;
+        if (request.kind === 'ack' && request.bootId === this.bootId) {
+          this.acknowledgements.get(request.sequence)?.(request.error);
+          return;
+        }
+      }
       assert(request.kind === 'collect' && typeof request.requestId === 'string' && request.requestId.length <= 128 && Number.isSafeInteger(request.requestedAt) && request.requestedAt > 0, 'Invalid collection request');
       positive(request.timeoutMillis,'timeoutMillis');
     } catch { return; }
-    void this.enqueue(()=>this.reply(request));
+    void this.enqueue(()=>this.reply(request)).catch(error=>diag.warn(`otel-cluster-metrics: reply not sent: ${reason(error)}`));
   };
   private onBeforeExit = (): void => {
     // Reached only when the application unreferenced the IPC channel, which otherwise keeps a worker alive.
     if (this.stopped || this.finalSent || !process.connected) return;
-    void this.snapshot('final').then(()=>this.stop());
+    void this.snapshot('final').finally(()=>this.stop()).catch(()=>{});
   };
   /** One SDK collection at a time, in send order, so sequence numbers follow the order on the pipe. */
   private enqueue(task: ()=>Promise<void>): Promise<void> {
@@ -87,7 +113,10 @@ export class WorkerMetricReader extends MetricReader {
         const metrics = await this.encoded();
         if (kind === 'final') this.finalSent = true;
         await this.send({kind},metrics);
-      } catch (error) { diag.warn(`otel-cluster-metrics: ${kind} snapshot not sent: ${reason(error)}`); }
+      } catch (error) {
+        diag.warn(`otel-cluster-metrics: ${kind} snapshot not sent: ${reason(error)}`);
+        if (this.pm2) throw error;
+      }
     });
   }
   /** Resolves once the message is written, so a caller may exit right after. */
@@ -97,11 +126,21 @@ export class WorkerMetricReader extends MetricReader {
     let body = JSON.stringify({...base,metrics,error});
     if (Buffer.byteLength(body) > this.maxBytes) body = JSON.stringify({...base,metrics:undefined,error:'IPC envelope exceeds byte limit'});
     if (Buffer.byteLength(body) > this.maxBytes) return Promise.resolve();
-    return new Promise(resolve=>{ try { process.send!(body,()=>resolve()); } catch { resolve(); } });
+    if (!this.pm2) return new Promise(resolve=>{ try { process.send!(body,()=>resolve()); } catch { resolve(); } });
+    if (head.kind === 'reply') return this.connection!.write(body);
+    return new Promise((resolve,reject)=>{
+      const finish=(error?: string)=>{
+        clearTimeout(timer);this.acknowledgements.delete(base.sequence);
+        if (error) reject(new Error(error)); else resolve();
+      };
+      const timer=setTimeout(()=>finish('PM2 collector did not acknowledge the snapshot'),this.ackTimeout);
+      const write=()=>{void this.connection!.write(body).catch(error=>finish(reason(error)));};
+      this.acknowledgements.set(base.sequence,finish);write();
+    });
   }
-  private stop(): void { this.stopped=true; clearInterval(this.timer); process.off('message',this.onMessage); process.off('beforeExit',this.onBeforeExit); }
+  private stop(): void { this.connection?.close(); this.stopped=true; clearInterval(this.timer); process.off('message',this.onMessage); process.off('beforeExit',this.onBeforeExit); }
   /** Sends the final snapshot before stopping, so provider.shutdown() in a worker hands its last totals to the primary. */
-  protected async onShutdown(): Promise<void> { await this.snapshot('final'); this.stop(); }
+  protected async onShutdown(): Promise<void> { try {await this.snapshot('final');} finally {this.stop();} }
   /** Pushes a snapshot now, so provider.forceFlush() bounds the loss before a risky step. */
   protected async onForceFlush(): Promise<void> { await this.snapshot('push'); }
 }
