@@ -6,9 +6,10 @@ import { hrTime } from '@opentelemetry/core';
 import type { Resource } from '@opentelemetry/resources';
 import { PrometheusExporter, PrometheusSerializer } from '@opentelemetry/exporter-prometheus';
 import { AggregationTemporality, MetricReader, type CollectionResult, type MetricCollectOptions, type MetricProducer } from '@opentelemetry/sdk-metrics';
-import { CHANNEL, VERSION, DEFAULT_MAX_BYTES, assert, positive, parseEnvelope, isOurMessage, encodeMetrics, decodeMetrics, resourceKey } from './protocol.js';
+import { CHANNEL, VERSION, DEFAULT_MAX_BYTES, assert, positive, parseEnvelope, isOurMessage, encodeMetrics, decodeMetrics, resourceKey, canonical } from './protocol.js';
 import { rowsOf, type GaugeReducer, type WorkerState } from './merge.js';
 import { ClusterState } from './state.js';
+import { StateFile } from './persistence.js';
 export type { GaugeReducer } from './merge.js';
 
 /** Milliseconds between unrequested worker snapshots. A crash then loses at most this much, not a scrape interval. */
@@ -115,12 +116,15 @@ export interface ClusterMetricProducerOptions {
   maxMessageBytes?: number;
   maxSeries?: number;
   maxWorkers?: number;
-  /** Reports discarded duplicate/late messages, rejected pushes and malformed protocol data. */
+  /** Opt-in file for cumulative counters, histograms and their aggregate start time. */
+  stateFile?: string;
+  /** Reports discarded messages, rejected pushes and state file failures. */
   onDiagnostic?: (message: string) => void;
 }
 /** A cumulative producer for one primary process and one common resource. */
 export class ClusterMetricProducer implements MetricProducer {
-  private readonly start = hrTime();
+  private start = hrTime();
+  private readonly persistence?: StateFile;
   private readonly state: ClusterState;
   private pending?: Promise<CollectionResult>;
   private deferred: (()=>void)[] = [];
@@ -147,13 +151,28 @@ export class ClusterMetricProducer implements MetricProducer {
     assert(Object.values(this.reducers).every(x=>['sum','min','max','mean'].includes(x)), 'Invalid gauge reducer');
     assert(!('aggregationTemporality' in options), 'Only cumulative aggregation is supported');
     this.state=new ClusterState(this.maxSeries,this.maxWorkers);
+    if (options.stateFile !== undefined) {
+      const identity=canonical({resource:resourceKey(options.resource),omit:[...new Set(this.omit)].sort(),reducers:this.reducers,
+        timeoutMillis:this.timeout,maxMessageBytes:this.maxBytes,maxSeries:this.maxSeries,maxWorkers:this.maxWorkers});
+      this.persistence=new StateFile(options.stateFile,identity,message=>this.diagnostic(message));
+      const saved=this.persistence.load(this.maxSeries,options.resource);
+      if (saved) {
+        try { this.state.restore(saved.metrics); this.start=saved.start; }
+        catch (error) { const message=`Cannot restore state file: ${reason(error)}`; this.diagnostic(message); throw new Error(message); }
+      }
+    }
     // Workers also report between scrapes: pushes, final snapshots and exits are applied as they arrive.
     cluster.on('message',this.onMessage); cluster.on('disconnect',this.onDisconnect); cluster.on('exit',this.onExit);
   }
   private diagnostic(message: string): void { try { this.options.onDiagnostic?.(message); } catch { /* Diagnostics must not change collection. */ } }
+  private persist(): void {
+    if (!this.persistence) return;
+    try { this.persistence.save(this.start,this.state.checkpoint(this.options.resource,this.start,hrTime())); }
+    catch (error) { this.diagnostic(`Cannot persist state file: ${reason(error)}`); }
+  }
   /** Applied now, or after the round in flight so that round stays atomic. */
   private later(fn: ()=>void): void { if (this.pending) this.deferred.push(fn); else this.apply(fn); }
-  private apply(fn: ()=>void): void { try { fn(); } catch (error) { this.diagnostic(reason(error)); } }
+  private apply(fn: ()=>void): void { try { fn(); this.persist(); } catch (error) { this.diagnostic(reason(error)); } }
   private drain(): void { const queue=this.deferred; this.deferred=[]; for (const fn of queue) this.apply(fn); }
   private onMessage = (worker: Worker, raw: unknown): void => {
     if (this.stopped || !isOurMessage(raw)) return;
@@ -192,7 +211,9 @@ export class ClusterMetricProducer implements MetricProducer {
     assert(workers.length <= this.maxWorkers, 'Worker limit exceeded');
     const replies = await this.request(workers,timeout);
     assert(!this.stopped, 'ClusterMetricProducer is shutdown');
-    return {resourceMetrics:this.state.round(this.options.resource,replies,this.reducers,this.start,hrTime()),errors:[]};
+    const resourceMetrics=this.state.round(this.options.resource,replies,this.reducers,this.start,hrTime());
+    this.persist();
+    return {resourceMetrics,errors:[]};
   }
   private request(workers: Worker[], timeout: number): Promise<Map<string,WorkerState>> {
     if (!workers.length) return Promise.resolve(new Map());
@@ -242,9 +263,10 @@ export class ClusterMetricProducer implements MetricProducer {
   /** Size of committed transport state, for operational checks. */
   get stateSize(): {workers:number;series:number;retiredSeries:number} { return this.state.size; }
   async shutdown(): Promise<void> {
+    if (this.stopped) return;
     this.stopped=true;
     cluster.off('message',this.onMessage); cluster.off('disconnect',this.onDisconnect); cluster.off('exit',this.onExit);
-    this.cancelRound?.(new Error('ClusterMetricProducer is shutdown')); this.deferred=[]; this.state.clear();
+    this.cancelRound?.(new Error('ClusterMetricProducer is shutdown')); this.drain(); this.persist(); this.state.clear();
   }
 }
 
